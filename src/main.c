@@ -8,11 +8,35 @@ typedef Vector2 Position;
 typedef float Rotation;
 typedef float Scale;
 
+typedef struct Animation {
+    Texture sheet;
+    uint8_t frame_width;
+    uint8_t cur_frame;
+} Animation;
+
 float ToDeg(float rad) { return (180 / PI) * rad; }
 float ToRad(float deg) { return (PI / 180) * deg; }
 
 Rectangle RecV(Vector2 a, Vector2 size) {
   return (Rectangle){a.x, a.y, size.x, size.y};
+}
+
+
+// 2.7 -> -1.5
+// 2.7 + 1.5 = 4.2
+// 2.7 - 1.5 = 1.2
+float RotationLerp(float rot, float target, float mul) {
+    if (fabs(target + rot) > fabs(target - rot)) {
+        rot += mul * (target - rot);
+    } else {
+        rot += mul * (target + rot);
+    }
+    if (rot > PI) {
+        rot -= 2*PI;
+    } else if (rot < -PI) {
+        rot += 2*PI;
+    }
+    return rot;
 }
 
 void Move(ecs_iter_t *it) {
@@ -25,8 +49,8 @@ void Move(ecs_iter_t *it) {
     p[i].y += v[i].y;
 
     Rotation target = -Vector2Angle((Vector2){0, -1}, v[i]);
-    // r[i] = Lerp(r[i], target, Vector2Length(v[i]));
-    r[i] = target;
+    r[i] = RotationLerp(r[i], target, 0.3);
+    // r[i] = target;
   }
 }
 
@@ -37,9 +61,9 @@ void Draw(ecs_iter_t *it) {
   Texture *t = ecs_field(it, Texture, 4);
 
   for (int i = 0; i < it->count; i++) {
-    // char buf[255];
-    // sprintf(buf, "%f %f %f %d %d\n", r[i], p[i].x, p[i].y, t[i].width,
-    // t[i].height); DrawText(buf, p[i].x, p[i].y - 20, 14, BLACK);
+    char buf[255];
+    sprintf(buf, "%f\n", r[i]);
+    DrawText(buf, p[i].x, p[i].y - 100, 14, BLACK);
 
     Vector2 size = Vector2Scale((Vector2){t[i].width, t[i].height}, s[i]);
     Vector2 halfsize = Vector2Scale(size, 0.5);
@@ -48,7 +72,7 @@ void Draw(ecs_iter_t *it) {
 
     DrawTextureEx(t[i], pos, ToDeg(r[i]), s[i], WHITE);
 
-    DrawRectangleLinesEx(RecV(Vector2Subtract(p[i], halfsize), size), 5, RED);
+    // DrawRectangleLinesEx(RecV(Vector2Subtract(p[i], halfsize), size), 5, RED);
   }
 }
 
