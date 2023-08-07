@@ -12,7 +12,13 @@ typedef struct Animation {
     Texture sheet;
     uint8_t frame_width;
     uint8_t cur_frame;
+    uint8_t fps;
+    float time;
 } Animation;
+
+uint8_t frame_count(Animation anim) {
+    return anim.sheet.width / anim.frame_width;
+}
 
 float ToDeg(float rad) { return (180 / PI) * rad; }
 float ToRad(float deg) { return (PI / 180) * deg; }
@@ -42,9 +48,9 @@ void Draw(ecs_iter_t *it) {
   Animation *a = ecs_field(it, Animation, 4);
 
   for (int i = 0; i < it->count; i++) {
-    char buf[255];
-    sprintf(buf, "%f\n", r[i]);
-    DrawText(buf, p[i].x, p[i].y - 100, 14, BLACK);
+    // char buf[255];
+    // sprintf(buf, "%f\n", r[i]);
+    // DrawText(buf, p[i].x, p[i].y - 100, 14, BLACK);
 
     Vector2 size = Vector2Scale((Vector2){a[i].frame_width, a[i].sheet.height}, s[i]);
     Vector2 halfsize = Vector2Scale(size, 0.5);
@@ -54,8 +60,15 @@ void Draw(ecs_iter_t *it) {
     Rectangle source = {a[i].cur_frame * a[i].frame_width, 0, a[i].frame_width, a[i].sheet.height};
     Rectangle dest = {pos.x, pos.y, a[i].sheet.height * s[i], a[i].frame_width * s[i]};
     DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
-    a[i].cur_frame++;
+    
+    a[i].time += it->delta_time;
+    if (a[i].time > 1. / a[i].fps) {
+        a[i].time = 0;
+        a[i].cur_frame++;
+        a[i].cur_frame %= frame_count(a[i]);
+    }
 
+    // Bounding box
     // DrawRectangleLinesEx(RecV(Vector2Subtract(p[i], halfsize), size), 5, RED);
   }
 }
@@ -96,6 +109,8 @@ int main(void) {
       .sheet = LoadTexture(ASSET "starship.png"),
       .cur_frame = 0,
       .frame_width = 16,
+      .time = 0,
+      .fps = 8,
   };
 
   ecs_set_ptr(ecs, player, Animation, &starship);
