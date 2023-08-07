@@ -10,6 +10,9 @@ set(BUILD_GAMES    OFF CACHE BOOL "" FORCE) # don't build the supplied example g
 FetchContent_Declare(raylib GIT_REPOSITORY https://github.com/raysan5/raylib.git GIT_TAG master)
 FetchContent_MakeAvailable(raylib)
 
+FetchContent_Declare(flecs GIT_REPOSITORY https://github.com/SanderMertens/flecs.git GIT_TAG master)
+FetchContent_MakeAvailable(flecs)
+
 project(gaming_game_gamers)
 
 find_package(Threads REQUIRED)
@@ -19,6 +22,7 @@ add_executable(${PROJECT_NAME} src/main.c)
 
 target_link_libraries(${PROJECT_NAME} 
   raylib
+  flecs
   ${CMAKE_THREAD_LIBS_INIT}
   -fsanitize=address
 )
