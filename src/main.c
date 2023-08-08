@@ -85,7 +85,7 @@ int main(void) {
     // ecs_set_target_fps(ecs, 60);
 
     Camera2D camera = {
-        .zoom = 1.,
+        .zoom = 2.,
         .offset = {screenWidth / 2., screenHeight / 2.},
         .target = {0., 0.},
         .rotation = 0.,
@@ -122,20 +122,59 @@ int main(void) {
         .fps = 1,
     };
 
+    Texture t_bg = LoadTexture(ASSET "Background.png");
+    Texture t_mg = LoadTexture(ASSET "Midground.png");
+    Texture t_fg = LoadTexture(ASSET "Foreground.png");
+
     ecs_set_ptr(ecs, player, Animation, &a_starship);
 
     while (!WindowShouldClose()) {
         BeginDrawing();
-        ClearBackground(WHITE);
         BeginMode2D(camera);
-
-        const float dt = GetFrameTime();
-        ecs_progress(ecs, dt);
-
+       
         static Position player_pos;
         player_pos = *ecs_get(ecs, player, Position);
         static Velocity player_vel;
         player_vel = *ecs_get(ecs, player, Velocity);
+
+        ClearBackground(WHITE);
+        {
+            Position top = GetScreenToWorld2D((Vector2){-1, -1}, camera);
+            Position bot = GetScreenToWorld2D((Vector2){GetScreenWidth(), GetScreenHeight()}, camera);
+            
+            Position bg_offset = Vector2Scale(camera.target, -0.1);
+            bg_offset.x = bg_offset.x - t_bg.width;
+            bg_offset.y = bg_offset.y - t_bg.height;
+            
+            for (int16_t x = bg_offset.x + top.x; x <= bot.x; x += t_bg.width) {
+                for (int16_t y = bg_offset.y + top.y; y <= bot.y; y += t_bg.height) {
+                    DrawTextureEx(t_bg, (Vector2){x, y}, 0, 1, WHITE);
+                }
+            }
+
+            Position mg_offset = Vector2Scale(camera.target, -0.4);
+            mg_offset.x = mg_offset.x - t_mg.width;
+            mg_offset.y = mg_offset.y - t_mg.height;
+            
+            for (int16_t x = mg_offset.x + top.x; x <= bot.x; x += t_mg.width) {
+                for (int16_t y = mg_offset.y + top.y; y <= bot.y; y += t_mg.height) {
+                    DrawTextureEx(t_mg, (Vector2){x, y}, 0, 1, WHITE);
+                }
+            }
+            
+            Position fg_offset = Vector2Scale(camera.target, -0.9);
+            fg_offset.x = fg_offset.x - t_fg.width;
+            fg_offset.y = fg_offset.y - t_fg.height;
+            
+            for (int16_t x = fg_offset.x + top.x; x <= bot.x; x += t_fg.width) {
+                for (int16_t y = fg_offset.y + top.y; y <= bot.y; y += t_fg.height) {
+                    DrawTextureEx(t_fg, (Vector2){x, y}, 0, 1, WHITE);
+                }
+            }
+        }
+        
+        const float dt = GetFrameTime();
+        ecs_progress(ecs, dt); // Also draws every entity
 
         { // player movement
             bool changed = false;
@@ -165,8 +204,12 @@ int main(void) {
             ecs_set_ptr(ecs, player, Velocity, &player_vel);
         }
 
-        { // Dynamic camera
+        { // Camera
             camera.target = Vector2Lerp(camera.target, player_pos, 1 * dt);
+
+            if (IsKeyDown(KEY_LEFT_BRACKET)) camera.zoom -= 0.01;
+            if (IsKeyDown(KEY_RIGHT_BRACKET)) camera.zoom += 0.01;
+            camera.zoom = Clamp(camera.zoom, 0.1, 5);
         }
 
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -175,10 +218,10 @@ int main(void) {
             const Rotation* rot = ecs_get(ecs, player, Rotation);
             ecs_set_ptr(ecs, laser, Rotation, rot);
             
-            Velocity vel = Vector2Rotate((Vector2){0, -1000}, *ecs_get(ecs, player, Rotation));
+            Velocity vel = Vector2Rotate((Vector2){0, -500}, *ecs_get(ecs, player, Rotation));
             ecs_set_ptr(ecs, laser, Velocity, &vel);
             
-            Velocity init_vel = Vector2Rotate((Vector2){0, -50}, *ecs_get(ecs, player, Rotation));
+            Velocity init_vel = Vector2Rotate((Vector2){0, -3 * a_starship.sheet.height}, *ecs_get(ecs, player, Rotation));
             Position pos = Vector2Add(init_vel, *ecs_get(ecs, player, Position));
             ecs_set_ptr(ecs, laser, Position, &pos);
             
@@ -196,6 +239,7 @@ int main(void) {
         }
         EndDrawing();
     }
+
 
     CloseWindow(); // Close window and OpenGL context
     ecs_fini(ecs);
