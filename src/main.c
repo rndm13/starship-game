@@ -60,6 +60,7 @@ void Draw(ecs_iter_t *it) {
 
     Rectangle source = {a[i].cur_frame * a[i].frame_width, 0, a[i].frame_width, a[i].sheet.height};
     Rectangle dest = {pos.x, pos.y, a[i].sheet.height * s[i], a[i].frame_width * s[i]};
+    
     DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
     
     a[i].time += it->delta_time;
@@ -119,7 +120,7 @@ int main(void) {
         .cur_frame = 0,
         .frame_width = 16,
         .time = 0,
-        .fps = 1,
+        .fps = 8,
     };
 
     Texture t_bg = LoadTexture(ASSET "Background.png");
@@ -137,8 +138,9 @@ int main(void) {
         static Velocity player_vel;
         player_vel = *ecs_get(ecs, player, Velocity);
 
-        ClearBackground(WHITE);
-        {
+        // ClearBackground(WHITE);
+
+        { // Backgrounds
             Position top = GetScreenToWorld2D((Vector2){-1, -1}, camera);
             Position bot = GetScreenToWorld2D((Vector2){GetScreenWidth(), GetScreenHeight()}, camera);
             
@@ -187,6 +189,10 @@ int main(void) {
                 player_vel.x = Clamp(player_vel.x - 200, -200, 200);
                 changed = true;
             }
+            if (!changed) { // Slow down if no movement keys are pressed
+                player_vel.x = Lerp(player_vel.x, 0, 0.3);
+            }
+            changed = false;
             if (IsKeyDown(KEY_UP)) {
                 player_vel.y = Clamp(player_vel.y - 200, -200, 200);
                 changed = true;
@@ -195,11 +201,10 @@ int main(void) {
                 player_vel.y = Clamp(player_vel.y + 200, -200, 200);
                 changed = true;
             }
-
             if (!changed) { // Slow down if no movement keys are pressed
-                player_vel.x = Lerp(player_vel.x, 0, 0.3);
                 player_vel.y = Lerp(player_vel.y, 0, 0.3);
             }
+
 
             ecs_set_ptr(ecs, player, Velocity, &player_vel);
         }
