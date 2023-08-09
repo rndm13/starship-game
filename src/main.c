@@ -23,6 +23,7 @@ typedef struct IFrames {
 
 typedef uint64_t Flags;
 #define PARTICLE 1 << 0
+#define EXPLODE_ON_DEATH 1 << 1
 
 typedef struct Animation {
     Texture sheet;
@@ -157,10 +158,14 @@ void HealthCheck(ecs_iter_t *it) {
     Animation *a = ecs_field(it, Animation, 3);
 
     for (int i = 0; i < it->count; i++) {
-        if (h[i] <= 0 && !(f[i] & PARTICLE)) {  
+        if (h[i] > 0) continue;
+        if (f[i] & PARTICLE) continue;
+        if (f[i] & EXPLODE_ON_DEATH) {  
             f[i] |= PARTICLE;
             a[i] = a_explosion;
             a[i].time = 0.01;
+        } else {
+            ecs_delete(it->world, it->entities[i]);
         }
     }
 }
@@ -170,7 +175,8 @@ void RemoveParticles(ecs_iter_t *it) {
     Animation *a = ecs_field(it, Animation, 2);
 
     for (int i = 0; i < it->count; i++) {
-        if ((f[i] & PARTICLE) && a[i].cur_frame >= FrameCount(a[i]) - 1) { // Particle on the last frame
+        if (!(f[i] & PARTICLE)) continue; // Not a particle
+        if (a[i].cur_frame >= FrameCount(a[i]) - 1) { // Particle on the last frame
             ecs_delete(it->world, it->entities[i]);
         }
     }
@@ -218,12 +224,12 @@ int main(void) {
     
     ECS_COMPONENT(ecs, Flags);
 
-    ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation); // Every update change position 
+    ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation);     
     
-    ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation, IFrames); // Every update draw on screen
-    ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); // Every update draw on screen
+    ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation, IFrames); 
+    // ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); 
     
-    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames); // Only when position/scale is set
+    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames);
     
     ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
     ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
@@ -267,7 +273,7 @@ int main(void) {
     ecs_set(ecs, player, Health, {5});
     ecs_set(ecs, player, ContactDamage, {0});
     ecs_set(ecs, player, Team, {0});
-    ecs_set(ecs, player, Flags, {0});
+    ecs_set(ecs, player, Flags, {EXPLODE_ON_DEATH});
     ecs_set(ecs, player, IFrames, {16, 0});
 
     ecs_set_ptr(ecs, player, Animation, &a_starship);
@@ -340,6 +346,7 @@ int main(void) {
                 player_vel.x = Lerp(player_vel.x, 0, 0.3);
             }
             changed = false;
+            
             if (IsKeyDown(KEY_UP)) {
                 player_vel.y = Clamp(player_vel.y - 200, -200, 200);
                 changed = true;
@@ -369,7 +376,7 @@ int main(void) {
 
                 ecs_set(ecs, laser, Scale, {5});
                 
-                ecs_set(ecs, laser, Health, {1 << 15});
+                ecs_set(ecs, laser, Health, {3});
                 ecs_set(ecs, laser, ContactDamage, {1});
                 ecs_set(ecs, laser, Team, {0});
                 ecs_set(ecs, laser, Flags, {0});
@@ -395,7 +402,7 @@ int main(void) {
                 ecs_set(ecs, enemy, Health, {5});
                 ecs_set(ecs, enemy, ContactDamage, {1});
                 ecs_set(ecs, enemy, Team, {1});
-                ecs_set(ecs, enemy, Flags, {0});
+                ecs_set(ecs, enemy, Flags, {EXPLODE_ON_DEATH});
                 ecs_set(ecs, enemy, IFrames, {16, 0});
 
                 ecs_set_ptr(ecs, enemy, Animation, &a_starship);
