@@ -15,6 +15,7 @@ typedef float Scale;
 typedef uint8_t Team;
 typedef int32_t Health;
 typedef int32_t ContactDamage;
+typedef uint8_t IFrames;
 
 typedef uint64_t Flags;
 #define PARTICLE 1 << 0
@@ -112,19 +113,24 @@ void Collisions(ecs_iter_t *it) {
     Health *h = ecs_field(it, Health, 4);
     ContactDamage *d = ecs_field(it, ContactDamage, 5);
     Team *t = ecs_field(it, Team, 6);
+    IFrames *im = ecs_field(it, IFrames, 7);
 
     for (int i = 0; i < it->count; i++) {
+        if (im[i] > 0) continue; // i is immune
+                                 //
         Rectangle irec = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
         for (int j = i; j < it->count; j++) {
-            if (t[j] == t[i]) continue; // Skip if same teams
-                                        // Possibly remake this so teams would be split into different sections
-                                        // with a system that activates on set
+            if (t[j] == t[i] || im[j] > 0) continue; // Skip if same teams or j is immune
+                                                     // Possibly remake this so teams would be split into different sections
+                                                     // with a system that activates on set
             
             Rectangle jrec = RecEx(p[j], FrameSize(a[j]), 0, s[j]);
-            
+
             if (CheckCollisionRecs(irec, jrec)) {
                 h[i] -= d[j];
                 h[j] -= d[i];
+                im[i] += 16;
+                im[j] += 16;
             } // TODO: add iframes
         }
     }
@@ -157,6 +163,16 @@ void RemoveParticles(ecs_iter_t *it) {
     }
 }
 
+void DecrementIFrames(ecs_iter_t *it) {
+    IFrames *im = ecs_field(it, IFrames, 1);
+
+    for (int i = 0; i < it->count; i++) {
+        if (im[i] != 0) {
+            im[i]--;
+        }
+    }
+}
+
 int main(void) {
     const int screenWidth = 1360;
     const int screenHeight = 700;
@@ -184,7 +200,9 @@ int main(void) {
    
     ECS_COMPONENT(ecs, Health);
     ECS_COMPONENT(ecs, ContactDamage);
+    ECS_COMPONENT(ecs, IFrames);
     ECS_COMPONENT(ecs, Team);
+    
     ECS_COMPONENT(ecs, Flags);
 
     ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation); // Every update change position 
@@ -192,9 +210,11 @@ int main(void) {
     ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation); // Every update draw on screen
     ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); // Every update draw on screen
     
-    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team); // Only when position/scale is set
+    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames); // Only when position/scale is set
+    
     ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
     ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
+    ECS_SYSTEM(ecs, DecrementIFrames, EcsOnUpdate, IFrames); 
 
     Animation a_starship = {
         .sheet = LoadTexture(ASSET "starship.png"),
@@ -233,6 +253,7 @@ int main(void) {
     ecs_set(ecs, player, ContactDamage, {0});
     ecs_set(ecs, player, Team, {0});
     ecs_set(ecs, player, Flags, {0});
+    ecs_set(ecs, player, IFrames, {0});
 
     ecs_set_ptr(ecs, player, Animation, &a_starship);
 
@@ -333,6 +354,7 @@ int main(void) {
                 ecs_set(ecs, laser, ContactDamage, {1});
                 ecs_set(ecs, laser, Team, {0});
                 ecs_set(ecs, laser, Flags, {0});
+                ecs_set(ecs, laser, IFrames, {0});
 
                 ecs_set_ptr(ecs, laser, Animation, &a_laser);
             }
@@ -355,6 +377,7 @@ int main(void) {
                 ecs_set(ecs, enemy, ContactDamage, {1});
                 ecs_set(ecs, enemy, Team, {1});
                 ecs_set(ecs, enemy, Flags, {0});
+                ecs_set(ecs, enemy, IFrames, {0});
 
                 ecs_set_ptr(ecs, enemy, Animation, &a_starship);
             }
