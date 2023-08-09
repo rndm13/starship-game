@@ -15,8 +15,10 @@ typedef float Scale;
 typedef uint8_t Team;
 typedef int32_t Health;
 typedef int32_t ContactDamage;
-typedef uint8_t IFrames;
-typedef uint8_t IFramesInit;
+typedef struct IFrames {
+    uint8_t init;
+    uint8_t cur;
+} IFrames;
 
 typedef uint64_t Flags;
 #define PARTICLE 1 << 0
@@ -74,7 +76,6 @@ void DrawAnimation(ecs_iter_t *it) {
     Rotation *r = ecs_field(it, Rotation, 2);
     Scale *s = ecs_field(it, Scale, 3);
     Animation *a = ecs_field(it, Animation, 4);
-    // Health *h = ecs_field(it, Health, 5);
     IFrames *im = ecs_field(it, IFrames, 5);
 
     for (int i = 0; i < it->count; i++) {
@@ -83,7 +84,7 @@ void DrawAnimation(ecs_iter_t *it) {
         Rectangle dest = RecEx(p[i], FrameSize(a[i]), r[i], s[i]);
         Rectangle dest_norot = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
 
-        if ((im[i] + 1) % 4 == 0) {
+        if (im[i].cur > 0) {
             BeginShaderMode(sh_immunity);
             DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
             EndShaderMode();
@@ -110,7 +111,7 @@ void DrawHealth(ecs_iter_t *it) {
     for (int i = 0; i < it->count; i++) {
         char buf[255];
         sprintf(buf, "Health: %d\n", h[i]);
-        DrawText(buf, p[i].x, p[i].y - 100, 14, RAYWHITE);
+        DrawText(buf, p[i].x - 100, p[i].y - 100, 14, RAYWHITE);
     }
 }
 
@@ -125,23 +126,24 @@ void Collisions(ecs_iter_t *it) {
     ContactDamage *d = ecs_field(it, ContactDamage, 5);
     Team *t = ecs_field(it, Team, 6);
     IFrames *im = ecs_field(it, IFrames, 7);
-    IFrames *im_init = ecs_field(it, IFramesInit, 8);
 
     for (int i = 0; i < it->count; i++) {
-        if (im[i] > 0) continue; // i is immune
+        if (im[i].cur > 0) continue; // i is immune
         
         Rectangle irec = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
         for (int j = i; j < it->count; j++) {
-            if (t[j] == t[i] || im[j] > 0) continue; // Skip if same teams or j is immune
+            if (t[j] == t[i] || im[j].cur > 0) continue; // Skip if same teams or j is immune
             
             Rectangle jrec = RecEx(p[j], FrameSize(a[j]), 0, s[j]);
 
             if (CheckCollisionRecs(irec, jrec)) {
+                // Decrement health
                 h[i] -= d[j];
                 h[j] -= d[i];
-                im[i] += im_init[i];
-                im[j] += im_init[j];
-            } // TODO: add iframes
+                // Add iframes
+                im[i].cur += im[i].init;
+                im[j].cur += im[j].init;
+            } 
         }
     }
 }
@@ -177,8 +179,8 @@ void DecrementIFrames(ecs_iter_t *it) {
     IFrames *im = ecs_field(it, IFrames, 1);
 
     for (int i = 0; i < it->count; i++) {
-        if (im[i] != 0) {
-            im[i]--;
+        if (im[i].cur > 0) {
+            im[i].cur--;
         }
     }
 }
@@ -194,7 +196,7 @@ int main(void) {
     // ecs_set_target_fps(ecs, 60);
 
     Camera2D camera = {
-        .zoom = 2.,
+        .zoom = 1,
         .offset = {screenWidth / 2., screenHeight / 2.},
         .target = {0., 0.},
         .rotation = 0.,
@@ -211,7 +213,6 @@ int main(void) {
     ECS_COMPONENT(ecs, Health);
     ECS_COMPONENT(ecs, ContactDamage);
     ECS_COMPONENT(ecs, IFrames);
-    ECS_COMPONENT(ecs, IFramesInit);
     ECS_COMPONENT(ecs, Team);
     
     ECS_COMPONENT(ecs, Flags);
@@ -221,7 +222,7 @@ int main(void) {
     ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation, IFrames); // Every update draw on screen
     ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); // Every update draw on screen
     
-    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames, IFramesInit); // Only when position/scale is set
+    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames); // Only when position/scale is set
     
     ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
     ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
@@ -266,11 +267,12 @@ int main(void) {
     ecs_set(ecs, player, ContactDamage, {0});
     ecs_set(ecs, player, Team, {0});
     ecs_set(ecs, player, Flags, {0});
-    ecs_set(ecs, player, IFrames, {0});
-    ecs_set(ecs, player, IFramesInit, {16});
+    ecs_set(ecs, player, IFrames, {16, 0});
 
     ecs_set_ptr(ecs, player, Animation, &a_starship);
 
+    int sh_im_time = GetShaderLocation(sh_immunity, "time");
+    float timeSec = 0;
     while (!WindowShouldClose()) {
         BeginDrawing();
         BeginMode2D(camera);
@@ -318,6 +320,8 @@ int main(void) {
         }
 
         const float dt = GetFrameTime();
+        timeSec += dt;
+        SetShaderValue(sh_immunity, sh_im_time, &timeSec, SHADER_UNIFORM_FLOAT);
         ecs_progress(ecs, dt); // Also draws every entity
 
         { // player controls
@@ -368,8 +372,7 @@ int main(void) {
                 ecs_set(ecs, laser, ContactDamage, {1});
                 ecs_set(ecs, laser, Team, {0});
                 ecs_set(ecs, laser, Flags, {0});
-                ecs_set(ecs, laser, IFrames, {0});
-                ecs_set(ecs, laser, IFramesInit, {0});
+                ecs_set(ecs, laser, IFrames, {0, 0});
 
                 ecs_set_ptr(ecs, laser, Animation, &a_laser);
             }
@@ -392,8 +395,7 @@ int main(void) {
                 ecs_set(ecs, enemy, ContactDamage, {1});
                 ecs_set(ecs, enemy, Team, {1});
                 ecs_set(ecs, enemy, Flags, {0});
-                ecs_set(ecs, enemy, IFrames, {0});
-                ecs_set(ecs, enemy, IFramesInit, {16});
+                ecs_set(ecs, enemy, IFrames, {16, 0});
 
                 ecs_set_ptr(ecs, enemy, Animation, &a_starship);
             }
