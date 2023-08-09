@@ -23,15 +23,28 @@ typedef struct Animation {
     float time;
 } Animation;
 
-uint8_t frame_count(Animation anim) {
+uint8_t FrameCount(Animation anim) {
     return anim.sheet.width / anim.frame_width;
+}
+
+Vector2 FrameSize(Animation anim) {
+    return (Vector2){anim.frame_width, anim.sheet.height};
 }
 
 float ToDeg(float rad) { return (180 / PI) * rad; }
 float ToRad(float deg) { return (PI / 180) * deg; }
 
-Rectangle RecV(Vector2 a, Vector2 size) {
-    return (Rectangle){a.x, a.y, size.x, size.y};
+Rectangle RecV(Vector2 pos, Vector2 size) {
+    return (Rectangle){pos.x, pos.y, size.x, size.y};
+}
+
+Rectangle RecEx(Vector2 pos, Vector2 size, Rotation r, Scale s) {
+    Vector2 ss = Vector2Scale(size, s);
+    Vector2 halfss = Vector2Scale(ss, 0.5);
+
+    Vector2 p = Vector2Subtract(pos, Vector2Rotate(halfss, r));
+
+    return RecV(p, ss);
 }
 
 void Move(ecs_iter_t *it) {
@@ -60,13 +73,9 @@ void DrawAnimation(ecs_iter_t *it) {
         // sprintf(buf, "Health: %d\n", h[i]);
         // DrawText(buf, p[i].x, p[i].y - 100, 14, RAYWHITE);
 
-        Vector2 size = Vector2Scale((Vector2){a[i].frame_width, a[i].sheet.height}, s[i]);
-        Vector2 halfsize = Vector2Scale(size, 0.5);
-
-        Vector2 pos = Vector2Subtract(p[i], Vector2Rotate(halfsize, r[i]));
-
         Rectangle source = {a[i].cur_frame * a[i].frame_width, 0, a[i].frame_width, a[i].sheet.height};
-        Rectangle dest = {pos.x, pos.y, a[i].sheet.height * s[i], a[i].frame_width * s[i]};
+
+        Rectangle dest = RecEx(p[i], FrameSize(a[i]), r[i], s[i]); //{pos.x, pos.y, a[i].frame_width * s[i], a[i].sheet.height * s[i]};
 
         DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
 
@@ -74,11 +83,11 @@ void DrawAnimation(ecs_iter_t *it) {
         if (a[i].time > 1. / a[i].fps) {
             a[i].time = 0;
             a[i].cur_frame++;
-            a[i].cur_frame %= frame_count(a[i]);
+            a[i].cur_frame %= FrameCount(a[i]);
         }
 
         // Bounding box
-        // DrawRectangleLinesEx(RecV(Vector2Subtract(p[i], halfsize), size), 5, RED);
+        DrawRectangleLinesEx(RecEx(p[i], FrameSize(a[i]), 0, s[i]), 5, RED);
     }
 }
 
@@ -94,13 +103,13 @@ void Collisions(ecs_iter_t *it) {
     Team *t = ecs_field(it, Team, 6);
 
     for (int i = 0; i < it->count; i++) {
-        Rectangle irec = RecV(p[i], Vector2Scale((Vector2){a[i].frame_width, a[i].sheet.height}, s[i]));
+        Rectangle irec = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
         for (int j = i; j < it->count; j++) {
             if (t[j] == t[i]) continue; // Skip if same teams
                                         // Possibly remake this so teams would be split into different sections
                                         // with a system that activates on set
             
-            Rectangle jrec = RecV(p[j], Vector2Scale((Vector2){a[j].frame_width, a[j].sheet.height}, s[j]));
+            Rectangle jrec = RecEx(p[j], FrameSize(a[j]), 0, s[j]);
             
             if (CheckCollisionRecs(irec, jrec)) {
                 h[i] -= d[j];
@@ -262,7 +271,6 @@ int main(void) {
             if (!changed) { // Slow down if no movement keys are pressed
                 player_vel.y = Lerp(player_vel.y, 0, 0.3);
             }
-
 
             ecs_set_ptr(ecs, player, Velocity, &player_vel);
 
