@@ -16,6 +16,7 @@ typedef uint8_t Team;
 typedef int32_t Health;
 typedef int32_t ContactDamage;
 typedef uint8_t IFrames;
+typedef uint8_t IFramesInit;
 
 typedef uint64_t Flags;
 #define PARTICLE 1 << 0
@@ -66,19 +67,29 @@ void Move(ecs_iter_t *it) {
     }
 }
 
+Shader sh_immunity;
+
 void DrawAnimation(ecs_iter_t *it) {
     Position *p = ecs_field(it, Position, 1);
     Rotation *r = ecs_field(it, Rotation, 2);
     Scale *s = ecs_field(it, Scale, 3);
     Animation *a = ecs_field(it, Animation, 4);
     // Health *h = ecs_field(it, Health, 5);
+    IFrames *im = ecs_field(it, IFrames, 5);
 
     for (int i = 0; i < it->count; i++) {
         Rectangle source = {a[i].cur_frame * a[i].frame_width, 0, a[i].frame_width, a[i].sheet.height};
 
-        Rectangle dest = RecEx(p[i], FrameSize(a[i]), r[i], s[i]); //{pos.x, pos.y, a[i].frame_width * s[i], a[i].sheet.height * s[i]};
+        Rectangle dest = RecEx(p[i], FrameSize(a[i]), r[i], s[i]);
+        Rectangle dest_norot = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
 
-        DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
+        if ((im[i] + 1) % 4 == 0) {
+            BeginShaderMode(sh_immunity);
+            DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
+            EndShaderMode();
+        } else {
+            DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
+        }
 
         a[i].time += it->delta_time;
         if (a[i].time > 1. / a[i].fps) {
@@ -88,7 +99,7 @@ void DrawAnimation(ecs_iter_t *it) {
         }
 
         // Bounding box
-        DrawRectangleLinesEx(RecEx(p[i], FrameSize(a[i]), 0, s[i]), 5, RED);
+        // DrawRectangleLinesEx(dest_norot, 5, RED);
     }
 }
 
@@ -114,23 +125,22 @@ void Collisions(ecs_iter_t *it) {
     ContactDamage *d = ecs_field(it, ContactDamage, 5);
     Team *t = ecs_field(it, Team, 6);
     IFrames *im = ecs_field(it, IFrames, 7);
+    IFrames *im_init = ecs_field(it, IFramesInit, 8);
 
     for (int i = 0; i < it->count; i++) {
         if (im[i] > 0) continue; // i is immune
-                                 //
+        
         Rectangle irec = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
         for (int j = i; j < it->count; j++) {
             if (t[j] == t[i] || im[j] > 0) continue; // Skip if same teams or j is immune
-                                                     // Possibly remake this so teams would be split into different sections
-                                                     // with a system that activates on set
             
             Rectangle jrec = RecEx(p[j], FrameSize(a[j]), 0, s[j]);
 
             if (CheckCollisionRecs(irec, jrec)) {
                 h[i] -= d[j];
                 h[j] -= d[i];
-                im[i] += 16;
-                im[j] += 16;
+                im[i] += im_init[i];
+                im[j] += im_init[j];
             } // TODO: add iframes
         }
     }
@@ -201,16 +211,17 @@ int main(void) {
     ECS_COMPONENT(ecs, Health);
     ECS_COMPONENT(ecs, ContactDamage);
     ECS_COMPONENT(ecs, IFrames);
+    ECS_COMPONENT(ecs, IFramesInit);
     ECS_COMPONENT(ecs, Team);
     
     ECS_COMPONENT(ecs, Flags);
 
     ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation); // Every update change position 
     
-    ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation); // Every update draw on screen
+    ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation, IFrames); // Every update draw on screen
     ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); // Every update draw on screen
     
-    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames); // Only when position/scale is set
+    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames, IFramesInit); // Only when position/scale is set
     
     ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
     ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
@@ -244,6 +255,8 @@ int main(void) {
     Texture t_mg = LoadTexture(ASSET "Midground.png");
     Texture t_fg = LoadTexture(ASSET "Foreground.png");
 
+    sh_immunity = LoadShader(0, ASSET "immunity.fs");
+
     ecs_entity_t player = ecs_new_id(ecs);
     ecs_set(ecs, player, Position, {0, 0});
     ecs_set(ecs, player, Velocity, {0, 0});
@@ -254,6 +267,7 @@ int main(void) {
     ecs_set(ecs, player, Team, {0});
     ecs_set(ecs, player, Flags, {0});
     ecs_set(ecs, player, IFrames, {0});
+    ecs_set(ecs, player, IFramesInit, {16});
 
     ecs_set_ptr(ecs, player, Animation, &a_starship);
 
@@ -355,6 +369,7 @@ int main(void) {
                 ecs_set(ecs, laser, Team, {0});
                 ecs_set(ecs, laser, Flags, {0});
                 ecs_set(ecs, laser, IFrames, {0});
+                ecs_set(ecs, laser, IFramesInit, {0});
 
                 ecs_set_ptr(ecs, laser, Animation, &a_laser);
             }
@@ -378,6 +393,7 @@ int main(void) {
                 ecs_set(ecs, enemy, Team, {1});
                 ecs_set(ecs, enemy, Flags, {0});
                 ecs_set(ecs, enemy, IFrames, {0});
+                ecs_set(ecs, enemy, IFramesInit, {16});
 
                 ecs_set_ptr(ecs, enemy, Animation, &a_starship);
             }
