@@ -289,8 +289,8 @@ int main(void) {
             Position bot = GetScreenToWorld2D((Vector2){GetScreenWidth(), GetScreenHeight()}, camera);
 
             Position bg_offset = Vector2Scale(camera.target, -0.1);
-            bg_offset.x = bg_offset.x - t_bg.width;
-            bg_offset.y = bg_offset.y - t_bg.height;
+            bg_offset.x = (int)bg_offset.x % t_bg.width - t_bg.width; 
+            bg_offset.y = (int)bg_offset.y % t_bg.height - t_bg.height;
 
             for (int16_t x = bg_offset.x + top.x; x <= bot.x; x += t_bg.width) {
                 for (int16_t y = bg_offset.y + top.y; y <= bot.y; y += t_bg.height) {
@@ -299,8 +299,8 @@ int main(void) {
             }
 
             Position mg_offset = Vector2Scale(camera.target, -0.4);
-            mg_offset.x = mg_offset.x - t_mg.width;
-            mg_offset.y = mg_offset.y - t_mg.height;
+            mg_offset.x = (int)mg_offset.x % t_bg.width - t_mg.width;
+            mg_offset.y = (int)mg_offset.y % t_bg.height - t_mg.height;
 
             for (int16_t x = mg_offset.x + top.x; x <= bot.x; x += t_mg.width) {
                 for (int16_t y = mg_offset.y + top.y; y <= bot.y; y += t_mg.height) {
@@ -309,8 +309,8 @@ int main(void) {
             }
 
             Position fg_offset = Vector2Scale(camera.target, -0.9);
-            fg_offset.x = fg_offset.x - t_fg.width;
-            fg_offset.y = fg_offset.y - t_fg.height;
+            fg_offset.x = (int)mg_offset.x % t_bg.width - t_fg.width;
+            fg_offset.y = (int)mg_offset.y % t_bg.height - t_fg.height;
 
             for (int16_t x = fg_offset.x + top.x; x <= bot.x; x += t_fg.width) {
                 for (int16_t y = fg_offset.y + top.y; y <= bot.y; y += t_fg.height) {
