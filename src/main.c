@@ -1,4 +1,5 @@
 #include "flecs.h"
+#include "flecs/addons/flecs_c.h"
 #include "raylib.h"
 #include "raymath.h"
 #include <stdint.h>
@@ -14,6 +15,9 @@ typedef float Scale;
 typedef uint8_t Team;
 typedef int32_t Health;
 typedef int32_t ContactDamage;
+
+typedef uint64_t Flags;
+#define PARTICLE 1 << 0
 
 typedef struct Animation {
     Texture sheet;
@@ -69,10 +73,6 @@ void DrawAnimation(ecs_iter_t *it) {
     // Health *h = ecs_field(it, Health, 5);
 
     for (int i = 0; i < it->count; i++) {
-        // char buf[255];
-        // sprintf(buf, "Health: %d\n", h[i]);
-        // DrawText(buf, p[i].x, p[i].y - 100, 14, RAYWHITE);
-
         Rectangle source = {a[i].cur_frame * a[i].frame_width, 0, a[i].frame_width, a[i].sheet.height};
 
         Rectangle dest = RecEx(p[i], FrameSize(a[i]), r[i], s[i]); //{pos.x, pos.y, a[i].frame_width * s[i], a[i].sheet.height * s[i]};
@@ -88,6 +88,17 @@ void DrawAnimation(ecs_iter_t *it) {
 
         // Bounding box
         DrawRectangleLinesEx(RecEx(p[i], FrameSize(a[i]), 0, s[i]), 5, RED);
+    }
+}
+
+void DrawHealth(ecs_iter_t *it) {
+    Position *p = ecs_field(it, Position, 1);
+    Health *h = ecs_field(it, Health, 2);
+
+    for (int i = 0; i < it->count; i++) {
+        char buf[255];
+        sprintf(buf, "Health: %d\n", h[i]);
+        DrawText(buf, p[i].x, p[i].y - 100, 14, RAYWHITE);
     }
 }
 
@@ -119,11 +130,28 @@ void Collisions(ecs_iter_t *it) {
     }
 }
 
+Animation a_explosion;
+
 void HealthCheck(ecs_iter_t *it) {
     Health *h = ecs_field(it, Health, 1);
+    Flags *f = ecs_field(it, Flags, 2);
+    Animation *a = ecs_field(it, Animation, 3);
 
     for (int i = 0; i < it->count; i++) {
-        if (h[i] <= 0) { // TODO: add death animation
+        if (h[i] <= 0 && !(f[i] & PARTICLE)) {  
+            f[i] |= PARTICLE;
+            a[i] = a_explosion;
+            a[i].time = 0.01;
+        }
+    }
+}
+
+void RemoveParticles(ecs_iter_t *it) {
+    Flags *f = ecs_field(it, Flags, 1);
+    Animation *a = ecs_field(it, Animation, 2);
+
+    for (int i = 0; i < it->count; i++) {
+        if ((f[i] & PARTICLE) && a[i].cur_frame >= FrameCount(a[i]) - 1) { // Particle on the last frame
             ecs_delete(it->world, it->entities[i]);
         }
     }
@@ -157,13 +185,16 @@ int main(void) {
     ECS_COMPONENT(ecs, Health);
     ECS_COMPONENT(ecs, ContactDamage);
     ECS_COMPONENT(ecs, Team);
+    ECS_COMPONENT(ecs, Flags);
 
     ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation); // Every update change position 
     
     ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation); // Every update draw on screen
+    ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); // Every update draw on screen
     
     ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team); // Only when position/scale is set
-    ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health); // Only when health is set
+    ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
+    ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
 
     Animation a_starship = {
         .sheet = LoadTexture(ASSET "starship.png"),
@@ -175,6 +206,14 @@ int main(void) {
 
     Animation a_laser = {
         .sheet = LoadTexture(ASSET "laser.png"),
+        .cur_frame = 0,
+        .frame_width = 16,
+        .time = 0,
+        .fps = 8,
+    };
+
+    a_explosion = (Animation){
+        .sheet = LoadTexture(ASSET "Explosion.png"),
         .cur_frame = 0,
         .frame_width = 16,
         .time = 0,
@@ -193,6 +232,7 @@ int main(void) {
     ecs_set(ecs, player, Health, {5});
     ecs_set(ecs, player, ContactDamage, {0});
     ecs_set(ecs, player, Team, {0});
+    ecs_set(ecs, player, Flags, {0});
 
     ecs_set_ptr(ecs, player, Animation, &a_starship);
 
@@ -292,6 +332,7 @@ int main(void) {
                 ecs_set(ecs, laser, Health, {1 << 15});
                 ecs_set(ecs, laser, ContactDamage, {1});
                 ecs_set(ecs, laser, Team, {0});
+                ecs_set(ecs, laser, Flags, {0});
 
                 ecs_set_ptr(ecs, laser, Animation, &a_laser);
             }
@@ -313,6 +354,7 @@ int main(void) {
                 ecs_set(ecs, enemy, Health, {5});
                 ecs_set(ecs, enemy, ContactDamage, {1});
                 ecs_set(ecs, enemy, Team, {1});
+                ecs_set(ecs, enemy, Flags, {0});
 
                 ecs_set_ptr(ecs, enemy, Animation, &a_starship);
             }
