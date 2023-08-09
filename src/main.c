@@ -15,6 +15,7 @@ typedef float Scale;
 typedef uint8_t Team;
 typedef int32_t Health;
 typedef int32_t ContactDamage;
+
 typedef struct IFrames {
     uint8_t init;
     uint8_t cur;
@@ -239,9 +240,9 @@ int main(void) {
     Animation a_laser = {
         .sheet = LoadTexture(ASSET "laser.png"),
         .cur_frame = 0,
-        .frame_width = 16,
+        .frame_width = 1,
         .time = 0,
-        .fps = 8,
+        .fps = 60,
     };
 
     a_explosion = (Animation){
@@ -309,8 +310,8 @@ int main(void) {
             }
 
             Position fg_offset = Vector2Scale(camera.target, -0.9);
-            fg_offset.x = (int)mg_offset.x % t_bg.width - t_fg.width;
-            fg_offset.y = (int)mg_offset.y % t_bg.height - t_fg.height;
+            fg_offset.x = (int)fg_offset.x % t_bg.width - t_fg.width;
+            fg_offset.y = (int)fg_offset.y % t_bg.height - t_fg.height;
 
             for (int16_t x = fg_offset.x + top.x; x <= bot.x; x += t_fg.width) {
                 for (int16_t y = fg_offset.y + top.y; y <= bot.y; y += t_fg.height) {
@@ -366,7 +367,7 @@ int main(void) {
                 Position pos = Vector2Add(init_vel, *ecs_get(ecs, player, Position));
                 ecs_set_ptr(ecs, laser, Position, &pos);
 
-                ecs_set(ecs, laser, Scale, {3});
+                ecs_set(ecs, laser, Scale, {5});
                 
                 ecs_set(ecs, laser, Health, {1 << 15});
                 ecs_set(ecs, laser, ContactDamage, {1});
