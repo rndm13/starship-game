@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.22.3) 
 
 enable_language(C)
+
+set(CMAKE_CXX_FLAGS_DEBUG_INIT "-Wall")
+set(CMAKE_CXX_FLAGS_RELEASE_INIT "-Wall")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(FetchContent)
@@ -30,5 +33,6 @@ target_link_libraries(${PROJECT_NAME}
 # Setting ASSETS_PATH
 target_compile_definitions(${PROJECT_NAME} PUBLIC ASSET="${CMAKE_CURRENT_SOURCE_DIR}/assets/")
 # Set the asset path macro to the absolute path on the dev machine
-#target_compile_definitions(${PROJECT_NAME} PUBLIC ASSET="./assets") 
+# target_compile_definitions(${PROJECT_NAME} PUBLIC ASSET="./assets") 
+
 # Set the asset path macro in release mode to a relative path that assumes the assets folder is in the same directory as the game executable

@@ -1,5 +1,6 @@
 #include "flecs.h"
 #include "flecs/addons/flecs_c.h"
+#include "flecs/addons/log.h"
 #include "raylib.h"
 #include "raymath.h"
 #include <stdint.h>
@@ -41,6 +42,12 @@ Vector2 FrameSize(Animation anim) {
     return (Vector2){anim.frame_width, anim.sheet.height};
 }
 
+typedef enum GameState {
+    MAIN_MENU = 0,
+    GAME = 1,
+    DEATH_SCREEN = 2,
+} GameState;
+
 float ToDeg(float rad) { return (180 / PI) * rad; }
 float ToRad(float deg) { return (PI / 180) * deg; }
 
@@ -55,6 +62,34 @@ Rectangle RecEx(Vector2 pos, Vector2 size, Rotation r, Scale s) {
     Vector2 p = Vector2Subtract(pos, Vector2Rotate(halfss, r));
 
     return RecV(p, ss);
+}
+
+typedef struct Button {
+    const char* text;
+    int fsize;
+    Color color;
+
+    Position pos;
+    enum {
+        DRAW_BORDER,
+    } flags;
+} Button;
+
+Vector2 MeasureButton(Button b) {
+    return MeasureTextEx(GetFontDefault(), b.text, b.fsize, 0);
+}
+
+bool ShowButton(Button b) {
+    Vector2 size = MeasureButton(b);
+    Vector2 halfsize = Vector2Scale(size, 0.5);
+    DrawText(b.text, b.pos.x - halfsize.x, b.pos.y - halfsize.y, b.fsize, b.color);
+
+    Rectangle rec = RecV(Vector2Subtract(b.pos, halfsize), size);
+    if (b.flags & DRAW_BORDER) {
+        DrawRectangleLinesEx(rec, 5, b.color);
+    }
+
+    return IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), rec);
 }
 
 void Move(ecs_iter_t *it) {
@@ -160,7 +195,7 @@ void HealthCheck(ecs_iter_t *it) {
     for (int i = 0; i < it->count; i++) {
         if (h[i] > 0) continue;
         if (f[i] & PARTICLE) continue;
-        if (f[i] & EXPLODE_ON_DEATH) {  
+        if (f[i] & EXPLODE_ON_DEATH) {
             f[i] |= PARTICLE;
             a[i] = a_explosion;
             a[i].time = 0.01;
@@ -190,6 +225,40 @@ void DecrementIFrames(ecs_iter_t *it) {
             im[i].cur--;
         }
     }
+}
+
+typedef struct PlayerInfo {
+    Animation anim;
+} PlayerInfo;
+
+ecs_entity_t MakePlayer(ecs_world_t *ecs, PlayerInfo info) {
+    ECS_COMPONENT(ecs, Position);
+    ECS_COMPONENT(ecs, Velocity);
+    ECS_COMPONENT(ecs, Rotation);
+    ECS_COMPONENT(ecs, Scale);
+    ECS_COMPONENT(ecs, Animation);
+    ECS_COMPONENT(ecs, Health);
+    ECS_COMPONENT(ecs, ContactDamage);
+    ECS_COMPONENT(ecs, IFrames);
+    ECS_COMPONENT(ecs, Team);
+
+    ECS_COMPONENT(ecs, Flags);
+
+    ecs_entity_t player = ecs_new_id(ecs);
+
+    ecs_set(ecs, player, Position, {0, 0});
+    ecs_set(ecs, player, Velocity, {0, 0});
+    ecs_set(ecs, player, Rotation, {0});
+    ecs_set(ecs, player, Scale, {5});
+    ecs_set(ecs, player, Health, {5});
+    ecs_set(ecs, player, ContactDamage, {0});
+    ecs_set(ecs, player, Team, {0});
+    ecs_set(ecs, player, Flags, {EXPLODE_ON_DEATH});
+    ecs_set(ecs, player, IFrames, {16, 0});
+
+    ecs_set_ptr(ecs, player, Animation, &info.anim);
+
+    return player;
 }
 
 int main(void) {
@@ -253,43 +322,39 @@ int main(void) {
 
     a_explosion = (Animation){
         .sheet = LoadTexture(ASSET "Explosion.png"),
-            .cur_frame = 0,
-            .frame_width = 16,
-            .time = 0,
-            .fps = 8,
+        .cur_frame = 0,
+        .frame_width = 16,
+        .time = 0,
+        .fps = 8,
     };
 
     Texture t_bg = LoadTexture(ASSET "Background.png");
     Texture t_mg = LoadTexture(ASSET "Midground.png");
     Texture t_fg = LoadTexture(ASSET "Foreground.png");
 
+    Texture t_heart = LoadTexture(ASSET "Heart.png");
+
     sh_immunity = LoadShader(0, ASSET "immunity.fs");
-
-    ecs_entity_t player = ecs_new_id(ecs);
-    ecs_set(ecs, player, Position, {0, 0});
-    ecs_set(ecs, player, Velocity, {0, 0});
-    ecs_set(ecs, player, Rotation, {0});
-    ecs_set(ecs, player, Scale, {5});
-    ecs_set(ecs, player, Health, {5});
-    ecs_set(ecs, player, ContactDamage, {0});
-    ecs_set(ecs, player, Team, {0});
-    ecs_set(ecs, player, Flags, {EXPLODE_ON_DEATH});
-    ecs_set(ecs, player, IFrames, {16, 0});
-
-    ecs_set_ptr(ecs, player, Animation, &a_starship);
 
     int sh_im_time = GetShaderLocation(sh_immunity, "time");
     float timeSec = 0;
+
+    GameState gs = MAIN_MENU;
+
     while (!WindowShouldClose()) {
         BeginDrawing();
         BeginMode2D(camera);
         const float dt = GetFrameTime();
+
         timeSec += dt;
         SetShaderValue(sh_immunity, sh_im_time, &timeSec, SHADER_UNIFORM_FLOAT);
-        static Position player_pos;
-        static Velocity player_vel;
 
-        if (ecs_is_alive(ecs, player)) {
+        static ecs_entity_t player = 0;
+
+        static Position player_pos = {0, 0};
+        static Velocity player_vel = {0, 0};
+
+        if (ecs_is_valid(ecs, player)) {
             player_vel = *ecs_get(ecs, player, Velocity);
             player_pos = *ecs_get(ecs, player, Position);
         }
@@ -332,7 +397,7 @@ int main(void) {
 
         ecs_progress(ecs, dt); // Also draws every entity
 
-        if (ecs_is_alive(ecs, player)) { 
+        if (ecs_is_valid(ecs, player)) { 
             // Player controls
             // Obviously need player
 
@@ -423,8 +488,69 @@ int main(void) {
 
         EndMode2D();
 
-        { // UI
-            DrawFPS(5, 5);
+        // UI    
+        DrawFPS(GetScreenWidth() - 100, 5);
+
+        switch (gs) {
+            case GAME: {
+               static Health player_hp = 0; 
+
+               if (ecs_is_valid(ecs, player)) {
+                   player_hp = *ecs_get(ecs, player, Health);
+               } else { 
+                    gs = DEATH_SCREEN;
+               }
+
+               for (int i = 0; i < player_hp; ++i) {
+                   DrawTextureEx(t_heart, (Vector2){i * (t_heart.width * 3 + 7) + 15, 15}, 0, 3, WHITE);
+               }
+            } break;
+            
+            case MAIN_MENU: {
+                Button b_play = {
+                    .text = "PLAY",
+                    .pos = {(float)GetScreenWidth() / 2, 500},
+                    .fsize = 48,
+                    .color = WHITE,
+                    .flags = DRAW_BORDER,
+                };
+
+                if (ShowButton(b_play)) {
+                    printf("Clicked on play\n");
+                    player = MakePlayer(ecs, (PlayerInfo){.anim = a_starship});
+                    
+                    gs = GAME;
+                }
+            } break;
+
+            case DEATH_SCREEN: {
+                Button b_restart = {
+                    .text = "RESTART",
+                    .pos = {(float)GetScreenWidth() / 2, 500},
+                    .fsize = 48,
+                    .color = WHITE,
+                    .flags = DRAW_BORDER,
+                };
+                
+                Button b_main_menu = {
+                    .text = "MAIN MENU",
+                    .pos = {(float)GetScreenWidth() / 2, 600},
+                    .fsize = 48,
+                    .color = WHITE,
+                    .flags = DRAW_BORDER,
+                };
+
+                if (ShowButton(b_restart)) {
+                    gs = GAME;
+                    
+                    // TODO: Delete all entities
+                    player = MakePlayer(ecs, (PlayerInfo){.anim = a_starship});
+                }
+                
+                if (ShowButton(b_main_menu)) {
+                    gs = MAIN_MENU;
+                }
+            } break;
         }
 
         EndDrawing();
