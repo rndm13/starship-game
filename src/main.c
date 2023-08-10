@@ -197,10 +197,10 @@ int main(void) {
     const int screenHeight = 700;
 
     InitWindow(screenWidth, screenHeight, "gaming game gamers");
+    ToggleBorderlessWindowed();
     ecs_world_t *ecs = ecs_init();
 
     SetTargetFPS(60);
-    // ecs_set_target_fps(ecs, 60);
 
     Camera2D camera = {
         .zoom = 1,
@@ -409,7 +409,7 @@ int main(void) {
             }
         }
 
-        { // Camera
+        { // Camera 
             camera.target = Vector2Lerp(camera.target, player_pos, 1 * dt);
 
             if (IsKeyDown(KEY_LEFT_BRACKET)) camera.zoom -= 0.01;

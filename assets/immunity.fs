@@ -19,7 +19,7 @@ void basicImmunity() {
 
     ivec2 textureSz = textureSize(texture0, 0);
 
-    float s = abs(sin(time * 40));
+    float s = abs(sin(time * 25));
 
     if (s > 0.5) {
         finalColor = texelColor.aaaa;
