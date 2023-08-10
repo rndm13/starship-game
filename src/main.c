@@ -131,11 +131,11 @@ void Collisions(ecs_iter_t *it) {
 
     for (int i = 0; i < it->count; i++) {
         if (im[i].cur > 0) continue; // i is immune
-        
+
         Rectangle irec = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
         for (int j = i; j < it->count; j++) {
             if (t[j] == t[i] || im[j].cur > 0) continue; // Skip if same teams or j is immune
-            
+
             Rectangle jrec = RecEx(p[j], FrameSize(a[j]), 0, s[j]);
 
             if (CheckCollisionRecs(irec, jrec)) {
@@ -211,26 +211,26 @@ int main(void) {
 
     ECS_COMPONENT(ecs, Position);
     ECS_COMPONENT(ecs, Velocity);
-    
+
     ECS_COMPONENT(ecs, Rotation);
     ECS_COMPONENT(ecs, Scale);
-   
+
     ECS_COMPONENT(ecs, Animation);
-   
+
     ECS_COMPONENT(ecs, Health);
     ECS_COMPONENT(ecs, ContactDamage);
     ECS_COMPONENT(ecs, IFrames);
     ECS_COMPONENT(ecs, Team);
-    
+
     ECS_COMPONENT(ecs, Flags);
 
     ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation);     
-    
+
     ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation, IFrames); 
     // ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); 
-    
+
     ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames);
-    
+
     ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
     ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
     ECS_SYSTEM(ecs, DecrementIFrames, EcsOnUpdate, IFrames); 
@@ -253,10 +253,10 @@ int main(void) {
 
     a_explosion = (Animation){
         .sheet = LoadTexture(ASSET "Explosion.png"),
-        .cur_frame = 0,
-        .frame_width = 16,
-        .time = 0,
-        .fps = 8,
+            .cur_frame = 0,
+            .frame_width = 16,
+            .time = 0,
+            .fps = 8,
     };
 
     Texture t_bg = LoadTexture(ASSET "Background.png");
@@ -283,15 +283,19 @@ int main(void) {
     while (!WindowShouldClose()) {
         BeginDrawing();
         BeginMode2D(camera);
-
+        const float dt = GetFrameTime();
+        timeSec += dt;
+        SetShaderValue(sh_immunity, sh_im_time, &timeSec, SHADER_UNIFORM_FLOAT);
         static Position player_pos;
-        player_pos = *ecs_get(ecs, player, Position);
         static Velocity player_vel;
-        player_vel = *ecs_get(ecs, player, Velocity);
 
-        // ClearBackground(WHITE);
+        if (ecs_is_alive(ecs, player)) {
+            player_vel = *ecs_get(ecs, player, Velocity);
+            player_pos = *ecs_get(ecs, player, Position);
+        }
 
         { // Backgrounds
+          // Only neds camera
             Position top = GetScreenToWorld2D((Vector2){-1, -1}, camera);
             Position bot = GetScreenToWorld2D((Vector2){GetScreenWidth(), GetScreenHeight()}, camera);
 
@@ -326,12 +330,12 @@ int main(void) {
             }
         }
 
-        const float dt = GetFrameTime();
-        timeSec += dt;
-        SetShaderValue(sh_immunity, sh_im_time, &timeSec, SHADER_UNIFORM_FLOAT);
         ecs_progress(ecs, dt); // Also draws every entity
 
-        { // player controls
+        if (ecs_is_alive(ecs, player)) { 
+            // Player controls
+            // Obviously need player
+
             bool changed = false;
 
             if (IsKeyDown(KEY_RIGHT)) {
@@ -346,7 +350,7 @@ int main(void) {
                 player_vel.x = Lerp(player_vel.x, 0, 0.3);
             }
             changed = false;
-            
+
             if (IsKeyDown(KEY_UP)) {
                 player_vel.y = Clamp(player_vel.y - 200, -200, 200);
                 changed = true;
@@ -375,7 +379,7 @@ int main(void) {
                 ecs_set_ptr(ecs, laser, Position, &pos);
 
                 ecs_set(ecs, laser, Scale, {5});
-                
+
                 ecs_set(ecs, laser, Health, {3});
                 ecs_set(ecs, laser, ContactDamage, {1});
                 ecs_set(ecs, laser, Team, {0});
@@ -398,7 +402,7 @@ int main(void) {
                 ecs_set_ptr(ecs, enemy, Position, &pos);
 
                 ecs_set(ecs, enemy, Scale, {3});
-                
+
                 ecs_set(ecs, enemy, Health, {5});
                 ecs_set(ecs, enemy, ContactDamage, {1});
                 ecs_set(ecs, enemy, Team, {1});
@@ -407,7 +411,7 @@ int main(void) {
 
                 ecs_set_ptr(ecs, enemy, Animation, &a_starship);
             }
-        }
+        } 
 
         { // Camera 
             camera.target = Vector2Lerp(camera.target, player_pos, 1 * dt);
@@ -422,6 +426,7 @@ int main(void) {
         { // UI
             DrawFPS(5, 5);
         }
+
         EndDrawing();
     }
 
