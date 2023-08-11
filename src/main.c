@@ -71,22 +71,30 @@ typedef struct Button {
 
     Position pos;
     enum {
-        DRAW_BORDER,
+        DRAW_BORDER = 1 << 0,
     } flags;
 } Button;
 
+#define SPACING 5
+#define FONT GetFontDefault()
+
 Vector2 MeasureButton(Button b) {
-    return MeasureTextEx(GetFontDefault(), b.text, b.fsize, 0);
+    return MeasureTextEx(FONT, b.text, b.fsize, SPACING);
 }
 
 bool ShowButton(Button b) {
     Vector2 size = MeasureButton(b);
     Vector2 halfsize = Vector2Scale(size, 0.5);
-    DrawText(b.text, b.pos.x - halfsize.x, b.pos.y - halfsize.y, b.fsize, b.color);
+    DrawTextPro(FONT, b.text, b.pos, halfsize, 0, b.fsize, SPACING, b.color);
+    int offset = 15;
+    
+    Vector2 size_offset = Vector2AddValue(size, offset*2);
+    Vector2 pos_offset = Vector2AddValue(Vector2Subtract(b.pos, halfsize), -offset);
 
-    Rectangle rec = RecV(Vector2Subtract(b.pos, halfsize), size);
+    Rectangle rec = RecV(pos_offset, size_offset);
+
     if (b.flags & DRAW_BORDER) {
-        DrawRectangleLinesEx(rec, 5, b.color);
+        DrawRectangleLinesEx(rec, 1, b.color);
     }
 
     return IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), rec);
