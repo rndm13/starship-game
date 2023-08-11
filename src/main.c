@@ -85,13 +85,19 @@ Vector2 MeasureButton(Button b) {
 bool ShowButton(Button b) {
     Vector2 size = MeasureButton(b);
     Vector2 halfsize = Vector2Scale(size, 0.5);
-    DrawTextPro(FONT, b.text, b.pos, halfsize, 0, b.fsize, SPACING, b.color);
+    
     int offset = 15;
     
     Vector2 size_offset = Vector2AddValue(size, offset*2);
     Vector2 pos_offset = Vector2AddValue(Vector2Subtract(b.pos, halfsize), -offset);
-
+    
     Rectangle rec = RecV(pos_offset, size_offset);
+   
+    if (b.flags & DRAW_BORDER) {
+        DrawRectangleRec(rec, BLACK);
+    }
+
+    DrawTextPro(FONT, b.text, b.pos, halfsize, 0, b.fsize, SPACING, b.color);
 
     if (b.flags & DRAW_BORDER) {
         DrawRectangleLinesEx(rec, 1, b.color);
