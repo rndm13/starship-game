@@ -261,6 +261,22 @@ ecs_entity_t MakePlayer(ecs_world_t *ecs, PlayerInfo info) {
     return player;
 }
 
+void DrawBackground(Texture t_bg, Camera2D camera, float offset_scale) {
+    Position top = GetScreenToWorld2D((Vector2){-1, -1}, camera);
+    Position bot = GetScreenToWorld2D((Vector2){GetScreenWidth(), GetScreenHeight()}, camera);
+
+    Position bg_offset = Vector2Scale(camera.target, -offset_scale);
+    bg_offset.x = (int)bg_offset.x % t_bg.width - t_bg.width; 
+    bg_offset.y = (int)bg_offset.y % t_bg.height - t_bg.height;
+
+    for (int16_t x = bg_offset.x + top.x; x <= bot.x; x += t_bg.width) {
+        for (int16_t y = bg_offset.y + top.y; y <= bot.y; y += t_bg.height) {
+            DrawTextureEx(t_bg, (Vector2){x, y}, 0, 1, WHITE);
+        }
+    }
+
+}
+
 int main(void) {
     const int screenWidth = 1360;
     const int screenHeight = 700;
@@ -361,38 +377,9 @@ int main(void) {
 
         { // Backgrounds
           // Only neds camera
-            Position top = GetScreenToWorld2D((Vector2){-1, -1}, camera);
-            Position bot = GetScreenToWorld2D((Vector2){GetScreenWidth(), GetScreenHeight()}, camera);
-
-            Position bg_offset = Vector2Scale(camera.target, -0.1);
-            bg_offset.x = (int)bg_offset.x % t_bg.width - t_bg.width; 
-            bg_offset.y = (int)bg_offset.y % t_bg.height - t_bg.height;
-
-            for (int16_t x = bg_offset.x + top.x; x <= bot.x; x += t_bg.width) {
-                for (int16_t y = bg_offset.y + top.y; y <= bot.y; y += t_bg.height) {
-                    DrawTextureEx(t_bg, (Vector2){x, y}, 0, 1, WHITE);
-                }
-            }
-
-            Position mg_offset = Vector2Scale(camera.target, -0.4);
-            mg_offset.x = (int)mg_offset.x % t_bg.width - t_mg.width;
-            mg_offset.y = (int)mg_offset.y % t_bg.height - t_mg.height;
-
-            for (int16_t x = mg_offset.x + top.x; x <= bot.x; x += t_mg.width) {
-                for (int16_t y = mg_offset.y + top.y; y <= bot.y; y += t_mg.height) {
-                    DrawTextureEx(t_mg, (Vector2){x, y}, 0, 1, WHITE);
-                }
-            }
-
-            Position fg_offset = Vector2Scale(camera.target, -0.9);
-            fg_offset.x = (int)fg_offset.x % t_bg.width - t_fg.width;
-            fg_offset.y = (int)fg_offset.y % t_bg.height - t_fg.height;
-
-            for (int16_t x = fg_offset.x + top.x; x <= bot.x; x += t_fg.width) {
-                for (int16_t y = fg_offset.y + top.y; y <= bot.y; y += t_fg.height) {
-                    DrawTextureEx(t_fg, (Vector2){x, y}, 0, 1, WHITE);
-                }
-            }
+            DrawBackground(t_bg, camera, 0.1);
+            DrawBackground(t_mg, camera, 0.4);
+            DrawBackground(t_fg, camera, 0.9);
         }
 
         ecs_progress(ecs, dt); // Also draws every entity
