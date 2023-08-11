@@ -68,6 +68,7 @@ typedef struct Button {
     const char* text;
     int fsize;
     Color color;
+    Color hcolor;
 
     Position pos;
     enum {
@@ -82,6 +83,20 @@ Vector2 MeasureButton(Button b) {
     return MeasureTextEx(FONT, b.text, b.fsize, SPACING);
 }
 
+bool IsMouseHoveringButton(Button b) {
+    Vector2 size = MeasureButton(b);
+    Vector2 halfsize = Vector2Scale(size, 0.5);
+    
+    int offset = 15;
+    
+    Vector2 size_offset = Vector2AddValue(size, offset*2);
+    Vector2 pos_offset = Vector2AddValue(Vector2Subtract(b.pos, halfsize), -offset);
+
+    Rectangle rec = RecV(pos_offset, size_offset);
+
+    return CheckCollisionPointRec(GetMousePosition(), rec);
+}
+
 bool ShowButton(Button b) {
     Vector2 size = MeasureButton(b);
     Vector2 halfsize = Vector2Scale(size, 0.5);
@@ -90,6 +105,8 @@ bool ShowButton(Button b) {
     
     Vector2 size_offset = Vector2AddValue(size, offset*2);
     Vector2 pos_offset = Vector2AddValue(Vector2Subtract(b.pos, halfsize), -offset);
+
+    Color color = IsMouseHoveringButton(b) ? b.hcolor : b.color;
     
     Rectangle rec = RecV(pos_offset, size_offset);
    
@@ -97,13 +114,13 @@ bool ShowButton(Button b) {
         DrawRectangleRec(rec, BLACK);
     }
 
-    DrawTextPro(FONT, b.text, b.pos, halfsize, 0, b.fsize, SPACING, b.color);
+    DrawTextPro(FONT, b.text, b.pos, halfsize, 0, b.fsize, SPACING, color);
 
     if (b.flags & DRAW_BORDER) {
-        DrawRectangleLinesEx(rec, 1, b.color);
+        DrawRectangleLinesEx(rec, 5, color);
     }
 
-    return IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(GetMousePosition(), rec);
+    return IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && IsMouseHoveringButton(b);
 }
 
 void Move(ecs_iter_t *it) {
@@ -513,6 +530,7 @@ int main(void) {
                     .pos = {(float)GetScreenWidth() / 2, 500},
                     .fsize = 48,
                     .color = WHITE,
+                    .hcolor = RED,
                     .flags = DRAW_BORDER,
                 };
 
@@ -530,6 +548,7 @@ int main(void) {
                     .pos = {(float)GetScreenWidth() / 2, 500},
                     .fsize = 48,
                     .color = WHITE,
+                    .hcolor = RED,
                     .flags = DRAW_BORDER,
                 };
                 
@@ -538,6 +557,7 @@ int main(void) {
                     .pos = {(float)GetScreenWidth() / 2, 600},
                     .fsize = 48,
                     .color = WHITE,
+                    .hcolor = RED,
                     .flags = DRAW_BORDER,
                 };
 
