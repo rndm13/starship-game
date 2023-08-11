@@ -156,6 +156,32 @@ void DrawAnimation(ecs_iter_t *it) {
     Rotation *r = ecs_field(it, Rotation, 2);
     Scale *s = ecs_field(it, Scale, 3);
     Animation *a = ecs_field(it, Animation, 4);
+
+    for (int i = 0; i < it->count; i++) {
+        Rectangle source = {a[i].cur_frame * a[i].frame_width, 0, a[i].frame_width, a[i].sheet.height};
+
+        Rectangle dest = RecEx(p[i], FrameSize(a[i]), r[i], s[i]);
+        Rectangle dest_norot = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
+
+        DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
+
+        a[i].time += it->delta_time;
+        if (a[i].time > 1. / a[i].fps) {
+            a[i].time = 0;
+            a[i].cur_frame++;
+            a[i].cur_frame %= FrameCount(a[i]);
+        }
+
+        // Bounding box
+        // DrawRectangleLinesEx(dest_norot, 5, RED);
+    }
+}
+
+void DrawAnimationIFrames(ecs_iter_t *it) {
+    Position *p = ecs_field(it, Position, 1);
+    Rotation *r = ecs_field(it, Rotation, 2);
+    Scale *s = ecs_field(it, Scale, 3);
+    Animation *a = ecs_field(it, Animation, 4);
     IFrames *im = ecs_field(it, IFrames, 5);
 
     for (int i = 0; i < it->count; i++) {
@@ -231,20 +257,33 @@ void Collisions(ecs_iter_t *it) {
 Animation a_explosion;
 
 void HealthCheck(ecs_iter_t *it) {
+    COMPONENTS(it->world);
+
     Health *h = ecs_field(it, Health, 1);
     Flags *f = ecs_field(it, Flags, 2);
-    Animation *a = ecs_field(it, Animation, 3);
+    // Animation *a = ecs_field(it, Animation, 3);
 
     for (int i = 0; i < it->count; i++) {
         if (h[i] > 0) continue;
-        if (f[i] & PARTICLE) continue;
         if (f[i] & EXPLODE_ON_DEATH) {
-            f[i] |= PARTICLE;
-            a[i] = a_explosion;
-            a[i].time = 0.01;
-        } else {
-            ecs_delete(it->world, it->entities[i]);
-        }
+            ecs_entity_t explosion = ecs_new_id(it->world);
+            
+            const Position* pos = ecs_get(it->world, it->entities[i], Position);
+            
+            if (pos) {
+                ecs_set_ptr(it->world, explosion, Position, pos);
+
+                ecs_set(it->world, explosion, Rotation, {0});
+                ecs_set(it->world, explosion, Scale, {5});
+
+                ecs_set_ptr(it->world, explosion, Animation, &a_explosion);
+
+                // ecs_set(it->world, explosion, IFrames, {0,0}); // TODO: Remove this shit
+
+                ecs_set(it->world, explosion, Flags, {PARTICLE});
+            }
+        } 
+        ecs_delete(it->world, it->entities[i]);
     }
 }
 
@@ -331,7 +370,33 @@ int main(void) {
 
     ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation);     
 
-    ECS_SYSTEM(ecs, DrawAnimation, EcsOnUpdate, Position, Rotation, Scale, Animation, IFrames); 
+    ecs_entity_t draw = ecs_system(ecs, {
+                .entity = ecs_entity(ecs, {
+                    .name = "Draw"
+                }),
+                .query.filter.terms = {
+                    { .id = ecs_id(Position)},
+                    { .id = ecs_id(Rotation)},
+                    { .id = ecs_id(Scale)},
+                    { .id = ecs_id(Animation)},
+                    { .id = ecs_id(IFrames), .oper = EcsNot},
+                },
+                .callback = DrawAnimation
+            });
+
+    ecs_entity_t drawIFrames = ecs_system(ecs, {
+                .entity = ecs_entity(ecs, {
+                    .name = "DrawIFrames"
+                }),
+                .query.filter.terms = {
+                    { .id = ecs_id(Position)},
+                    { .id = ecs_id(Rotation)},
+                    { .id = ecs_id(Scale)},
+                    { .id = ecs_id(Animation)},
+                    { .id = ecs_id(IFrames)},
+                },
+                .callback = DrawAnimationIFrames
+            });
     // ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); 
 
     ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames);
@@ -394,16 +459,9 @@ int main(void) {
             player_vel = *ecs_get(ecs, player, Velocity);
             player_pos = *ecs_get(ecs, player, Position);
         }
-
-        { // Backgrounds
-          // Only neds camera
-            DrawBackground(t_bg, camera, 0.1);
-            DrawBackground(t_mg, camera, 0.4);
-            DrawBackground(t_fg, camera, 0.9);
-        }
-
-        ecs_progress(ecs, dt); // Also draws every entity
-
+        
+        // ---------------- PROCESSING ----------------
+        
         if (ecs_is_valid(ecs, player)) { 
             // Player controls
             // Obviously need player
@@ -492,6 +550,19 @@ int main(void) {
             if (IsKeyDown(KEY_RIGHT_BRACKET)) camera.zoom += 0.01;
             camera.zoom = Clamp(camera.zoom, 0.1, 5);
         }
+
+        ecs_progress(ecs, dt);
+        
+        // ------------ DRAWING ----------------
+        
+        { // Backgrounds
+            DrawBackground(t_bg, camera, 0.1);
+            DrawBackground(t_mg, camera, 0.4);
+            DrawBackground(t_fg, camera, 0.9);
+        }
+        
+        ecs_run(ecs, draw, dt, 0);
+        ecs_run(ecs, drawIFrames, dt, 0);
 
         EndMode2D();
 
