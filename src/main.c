@@ -34,6 +34,18 @@ typedef struct Animation {
     float time;
 } Animation;
 
+#define COMPONENTS(ecs) \
+    ECS_COMPONENT(ecs, Position); \
+    ECS_COMPONENT(ecs, Velocity); \
+    ECS_COMPONENT(ecs, Rotation); \
+    ECS_COMPONENT(ecs, Scale); \
+    ECS_COMPONENT(ecs, Animation); \
+    ECS_COMPONENT(ecs, Health); \
+    ECS_COMPONENT(ecs, ContactDamage); \
+    ECS_COMPONENT(ecs, IFrames); \
+    ECS_COMPONENT(ecs, Team); \
+    ECS_COMPONENT(ecs, Flags); 
+
 uint8_t FrameCount(Animation anim) {
     return anim.sheet.width / anim.frame_width;
 }
@@ -263,17 +275,7 @@ typedef struct PlayerInfo {
 } PlayerInfo;
 
 ecs_entity_t MakePlayer(ecs_world_t *ecs, PlayerInfo info) {
-    ECS_COMPONENT(ecs, Position);
-    ECS_COMPONENT(ecs, Velocity);
-    ECS_COMPONENT(ecs, Rotation);
-    ECS_COMPONENT(ecs, Scale);
-    ECS_COMPONENT(ecs, Animation);
-    ECS_COMPONENT(ecs, Health);
-    ECS_COMPONENT(ecs, ContactDamage);
-    ECS_COMPONENT(ecs, IFrames);
-    ECS_COMPONENT(ecs, Team);
-
-    ECS_COMPONENT(ecs, Flags);
+    COMPONENTS(ecs);
 
     ecs_entity_t player = ecs_new_id(ecs);
 
@@ -325,20 +327,7 @@ int main(void) {
         .rotation = 0.,
     };
 
-    ECS_COMPONENT(ecs, Position);
-    ECS_COMPONENT(ecs, Velocity);
-
-    ECS_COMPONENT(ecs, Rotation);
-    ECS_COMPONENT(ecs, Scale);
-
-    ECS_COMPONENT(ecs, Animation);
-
-    ECS_COMPONENT(ecs, Health);
-    ECS_COMPONENT(ecs, ContactDamage);
-    ECS_COMPONENT(ecs, IFrames);
-    ECS_COMPONENT(ecs, Team);
-
-    ECS_COMPONENT(ecs, Flags);
+    COMPONENTS(ecs);
 
     ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation);     
 
@@ -507,71 +496,63 @@ int main(void) {
         EndMode2D();
 
         // UI    
-        DrawFPS(GetScreenWidth() - 100, 5);
+        {
+            DrawFPS(GetScreenWidth() - 100, 5);
 
-        switch (gs) {
-            case GAME: {
-               static Health player_hp = 0; 
+            Button b_default = {
+                .text = "DEFAULT, YOU SHOULD SET THIS YOURSELF",
+                .pos = {(float)GetScreenWidth() / 2, 500},
+                .fsize = 48,
+                .color = WHITE,
+                .hcolor = RED,
+                .flags = DRAW_BORDER,
+            };
 
-               if (ecs_is_valid(ecs, player)) {
-                   player_hp = *ecs_get(ecs, player, Health);
-               } else { 
-                    gs = DEATH_SCREEN;
-               }
+            switch (gs) {
+                case GAME: {
+                   static Health player_hp = 0; 
 
-               for (int i = 0; i < player_hp; ++i) {
-                   DrawTextureEx(t_heart, (Vector2){i * (t_heart.width * 3 + 7) + 15, 15}, 0, 3, WHITE);
-               }
-            } break;
-            
-            case MAIN_MENU: {
-                Button b_play = {
-                    .text = "PLAY",
-                    .pos = {(float)GetScreenWidth() / 2, 500},
-                    .fsize = 48,
-                    .color = WHITE,
-                    .hcolor = RED,
-                    .flags = DRAW_BORDER,
-                };
+                   if (ecs_is_valid(ecs, player)) {
+                       player_hp = *ecs_get(ecs, player, Health);
+                   } else { 
+                        gs = DEATH_SCREEN;
+                   }
 
-                if (ShowButton(b_play)) {
-                    printf("Clicked on play\n");
-                    player = MakePlayer(ecs, (PlayerInfo){.anim = a_starship});
-                    
-                    gs = GAME;
-                }
-            } break;
-
-            case DEATH_SCREEN: {
-                Button b_restart = {
-                    .text = "RESTART",
-                    .pos = {(float)GetScreenWidth() / 2, 500},
-                    .fsize = 48,
-                    .color = WHITE,
-                    .hcolor = RED,
-                    .flags = DRAW_BORDER,
-                };
+                   for (int i = 0; i < player_hp; ++i) {
+                       DrawTextureEx(t_heart, (Vector2){i * (t_heart.width * 3 + 7) + 15, 15}, 0, 3, WHITE);
+                   }
+                } break;
                 
-                Button b_main_menu = {
-                    .text = "MAIN MENU",
-                    .pos = {(float)GetScreenWidth() / 2, 600},
-                    .fsize = 48,
-                    .color = WHITE,
-                    .hcolor = RED,
-                    .flags = DRAW_BORDER,
-                };
+                case MAIN_MENU: {
+                    Button b_play = b_default;
+                    b_play.text = "PLAY";
+                    if (ShowButton(b_play)) {
+                        player = MakePlayer(ecs, (PlayerInfo){.anim = a_starship});
+                        
+                        gs = GAME;
+                    }
+                } break;
 
-                if (ShowButton(b_restart)) {
-                    gs = GAME;
+                case DEATH_SCREEN: {
+                    Button b_restart = b_default;
+                    b_restart.text = "RESTART";
                     
-                    // TODO: Delete all entities
-                    player = MakePlayer(ecs, (PlayerInfo){.anim = a_starship});
-                }
-                
-                if (ShowButton(b_main_menu)) {
-                    gs = MAIN_MENU;
-                }
-            } break;
+                    Button b_main_menu = b_default;
+                    b_main_menu.text = "MAIN MENU";
+                    b_main_menu.pos.y = 600;
+
+                    if (ShowButton(b_restart)) {
+                        gs = GAME;
+                        
+                        // TODO: Delete all entities
+                        player = MakePlayer(ecs, (PlayerInfo){.anim = a_starship});
+                    }
+                    
+                    if (ShowButton(b_main_menu)) {
+                        gs = MAIN_MENU;
+                    }
+                } break;
+            }
         }
 
         EndDrawing();
