@@ -397,6 +397,7 @@ int main(void) {
                 },
                 .callback = DrawAnimationIFrames
             });
+    
     // ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); 
 
     ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames);
@@ -615,8 +616,24 @@ int main(void) {
                     if (ShowButton(b_restart)) {
                         gs = GAME;
                         
-                        // TODO: Delete all entities
-                        player = MakePlayer(ecs, (PlayerInfo){.anim = a_starship});
+                        { // Delete every entity (that has a flags component)
+                            ecs_query_t *q = ecs_query(ecs, {
+                                        .filter.terms = {
+                                            {ecs_id(Flags)}
+                                        }
+                                    });
+
+                            ecs_iter_t it = ecs_query_iter(ecs, q);
+
+                            while (ecs_query_next(&it)) {
+                                for (int i = 0; i < it.count; ++i) {
+                                    ecs_delete(ecs, it.entities[i]);
+                                }
+                            }
+                        }
+
+                        player = MakePlayer(ecs, (PlayerInfo){ .anim = a_starship });
+                        camera.target = *ecs_get(ecs, player, Position);
                     }
                     
                     if (ShowButton(b_main_menu)) {
