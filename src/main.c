@@ -1,6 +1,4 @@
 #include "flecs.h"
-#include "flecs/addons/flecs_c.h"
-#include "flecs/addons/log.h"
 #include "raylib.h"
 #include "raymath.h"
 #include <stdint.h>
@@ -254,14 +252,13 @@ void Collisions(ecs_iter_t *it) {
     }
 }
 
-Animation a_explosion;
-
 void HealthCheck(ecs_iter_t *it) {
     COMPONENTS(it->world);
 
     Health *h = ecs_field(it, Health, 1);
     Flags *f = ecs_field(it, Flags, 2);
-    // Animation *a = ecs_field(it, Animation, 3);
+
+    Animation* a_explosion = (Animation*)it->param;
 
     for (int i = 0; i < it->count; i++) {
         if (h[i] > 0) continue;
@@ -276,9 +273,7 @@ void HealthCheck(ecs_iter_t *it) {
                 ecs_set(it->world, explosion, Rotation, {0});
                 ecs_set(it->world, explosion, Scale, {5});
 
-                ecs_set_ptr(it->world, explosion, Animation, &a_explosion);
-
-                // ecs_set(it->world, explosion, IFrames, {0,0}); // TODO: Remove this shit
+                ecs_set_ptr(it->world, explosion, Animation, a_explosion);
 
                 ecs_set(it->world, explosion, Flags, {PARTICLE});
             }
@@ -402,7 +397,18 @@ int main(void) {
 
     ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames);
 
-    ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
+    // ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
+    ecs_entity_t healthCheck = ecs_system(ecs, {
+                .entity = ecs_entity(ecs, {
+                        .name = "HealthCheck"
+                        }),
+                .query.filter.terms = {
+                    {.id = ecs_id(Health)},
+                    {.id = ecs_id(Flags)},
+                },
+                .callback = HealthCheck,
+            });
+
     ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
     ECS_SYSTEM(ecs, DecrementIFrames, EcsOnUpdate, IFrames); 
 
@@ -422,7 +428,7 @@ int main(void) {
         .fps = 60,
     };
 
-    a_explosion = (Animation){
+    Animation a_explosion = (Animation){
         .sheet = LoadTexture(ASSET "Explosion.png"),
         .cur_frame = 0,
         .frame_width = 16,
@@ -553,6 +559,7 @@ int main(void) {
         }
 
         ecs_progress(ecs, dt);
+        ecs_run(ecs, healthCheck, dt, &a_explosion);
         
         // ------------ DRAWING ----------------
         
