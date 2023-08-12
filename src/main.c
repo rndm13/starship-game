@@ -1,6 +1,8 @@
 #include "flecs.h"
+#include "flecs/addons/flecs_c.h"
 #include "raylib.h"
 #include "raymath.h"
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +15,102 @@ typedef float Scale;
 
 typedef uint8_t Team;
 typedef int32_t Health;
-typedef int32_t ContactDamage;
+
+typedef struct HitBox {
+    int32_t damage;
+    
+    enum {
+        LINE,
+        CIRCLE,
+    } type;
+
+    union { // Relative to the Position component
+        struct {
+            float length;
+        } line_data;
+        
+        struct {
+            float radius;
+        } circle_data;
+    } data;
+} HitBox;
+
+HitBox CircleHitBox(int32_t damage, float radius) {
+    return (HitBox){
+        .damage = damage,
+        .type = CIRCLE,
+        .data.circle_data.radius = radius / 2,
+    };
+}
+
+HitBox LineHitBox(int32_t damage, float length) {
+    return (HitBox){
+        .damage = damage,
+        .type = LINE,
+        .data.line_data.length = length / 2,
+    };
+}
+
+Vector2 Vector2MoveRotation(Vector2 pos, float dist, float rot) {
+    return Vector2Add(pos, Vector2Rotate((Vector2){0, -dist}, rot));
+}
+
+Vector2 GetLineBegin(Position pos, Rotation rot, HitBox hb) {
+    assert(hb.type == LINE);
+
+    return Vector2MoveRotation(pos, -hb.data.line_data.length, rot);
+}
+
+Vector2 GetLineEnd(Position pos, Rotation rot, HitBox hb) {
+    assert(hb.type == LINE);
+
+    return Vector2MoveRotation(pos, hb.data.line_data.length, rot);
+}
+
+bool CheckHit(
+        Position a_pos, Rotation a_rot, HitBox a,
+        Position b_pos, Rotation b_rot, HitBox b) {
+    // quite ugly.......
+    switch (a.type) {
+        case LINE: {
+            Vector2 a_begin = GetLineBegin(a_pos, a_rot, a);
+            Vector2 a_end = GetLineEnd(a_pos, a_rot, a);
+            switch (b.type) {
+                case LINE: {
+                    Vector2 b_begin = GetLineBegin(b_pos, b_rot, b);
+                    Vector2 b_end = GetLineEnd(b_pos, b_rot, b);
+                    return CheckCollisionLines(
+                            a_begin, 
+                            a_end,
+                            b_begin, 
+                            b_end, 0);
+                }
+                case CIRCLE: {
+                    return CheckCollisionPointLine(b_pos, a_begin, a_end, b.data.circle_data.radius);
+                    // Vector2 trian_point = Vector2MoveTowards(a_pos, b_pos, b.data.circle_data.radius);
+                    // printf("%f %f %f %f %f %f %f %f %f\n", a_begin.x, a_begin.y, a_end.x, a_end.y, trian_point.x, trian_point.y, b_pos.x, b_pos.y, b.data.circle_data.radius);
+                    // return CheckCollisionPointTriangle(b_pos, trian_point, a_begin, a_end);
+                }
+            }
+        }
+        case CIRCLE:
+            switch (b.type) {
+                case LINE: {
+                    Vector2 b_begin = GetLineBegin(b_pos, b_rot, b);
+                    Vector2 b_end = GetLineEnd(b_pos, b_rot, b);
+                    
+                    // Vector2 trian_point = Vector2MoveTowards(b_pos, a_pos, a.data.circle_data.radius);
+                    // printf("%f %f %f %f %f %f %f %f %f\n", b_begin.x, b_begin.y, b_end.x, b_end.y, trian_point.x, trian_point.y, a_pos.x, a_pos.y, a.data.circle_data.radius);
+                    // return CheckCollisionPointTriangle(a_pos, trian_point, b_begin, b_end);
+                    return CheckCollisionPointLine(a_pos, b_begin, b_end, a.data.circle_data.radius);
+                }
+                case CIRCLE:
+                    return CheckCollisionCircles(
+                            a_pos, a.data.circle_data.radius,
+                            b_pos, b.data.circle_data.radius);
+            }
+    }
+}
 
 typedef struct IFrames {
     uint8_t init;
@@ -39,7 +136,7 @@ typedef struct Animation {
     ECS_COMPONENT(ecs, Scale); \
     ECS_COMPONENT(ecs, Animation); \
     ECS_COMPONENT(ecs, Health); \
-    ECS_COMPONENT(ecs, ContactDamage); \
+    ECS_COMPONENT(ecs, HitBox); \
     ECS_COMPONENT(ecs, IFrames); \
     ECS_COMPONENT(ecs, Team); \
     ECS_COMPONENT(ecs, Flags); 
@@ -58,9 +155,6 @@ typedef enum GameState {
     DEATH_SCREEN = 2,
 } GameState;
 
-float ToDeg(float rad) { return (180 / PI) * rad; }
-float ToRad(float deg) { return (PI / 180) * deg; }
-
 Rectangle RecV(Vector2 pos, Vector2 size) {
     return (Rectangle){pos.x, pos.y, size.x, size.y};
 }
@@ -73,6 +167,9 @@ Rectangle RecEx(Vector2 pos, Vector2 size, Rotation r, Scale s) {
 
     return RecV(p, ss);
 }
+
+float ToDeg(float rad) { return (180 / PI) * rad; }
+float ToRad(float deg) { return (PI / 180) * deg; }
 
 typedef struct Button {
     const char* text;
@@ -219,31 +316,49 @@ void DrawHealth(ecs_iter_t *it) {
     }
 }
 
+void DrawHitBox(ecs_iter_t *it) {
+    Position *p = ecs_field(it, Position, 1);
+    Rotation *r = ecs_field(it, Rotation, 2);
+    HitBox *hb = ecs_field(it, HitBox, 3);
+
+    for (int i = 0; i < it->count; i++) {
+        switch(hb[i].type) {
+            case LINE: {
+                Vector2 begin = GetLineBegin(p[i], r[i], hb[i]);
+                Vector2 end = GetLineEnd(p[i], r[i], hb[i]);
+                // printf("%f %f %f %f\n", begin.x, begin.y, end.x, end.y);
+                DrawLineEx(begin, end, 3, RED);
+                break;
+            }
+            case CIRCLE:
+                DrawCircleV(p[i], hb[i].data.circle_data.radius, RED);
+                break;
+        }
+    }
+}
+
 void Collisions(ecs_iter_t *it) {
     Position *p = ecs_field(it, Position, 1);
-    // Rotation *r = ecs_field(it, Rotation, 2);
     Scale *s = ecs_field(it, Scale, 2);
-    Animation *a = ecs_field(it, Animation, 3);
+    Rotation *r = ecs_field(it, Rotation, 3);
+    Animation *a = ecs_field(it, Animation, 4);
 
+    Health *h = ecs_field(it, Health, 5);
+    HitBox *hb = ecs_field(it, HitBox, 6);
+    Team *t = ecs_field(it, Team, 7);
 
-    Health *h = ecs_field(it, Health, 4);
-    ContactDamage *d = ecs_field(it, ContactDamage, 5);
-    Team *t = ecs_field(it, Team, 6);
-    IFrames *im = ecs_field(it, IFrames, 7);
+    IFrames *im = ecs_field(it, IFrames, 8);
 
     for (int i = 0; i < it->count; i++) {
         if (im[i].cur > 0) continue; // i is immune
-
-        Rectangle irec = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
+        
         for (int j = i; j < it->count; j++) {
             if (t[j] == t[i] || im[j].cur > 0) continue; // Skip if same teams or j is immune
 
-            Rectangle jrec = RecEx(p[j], FrameSize(a[j]), 0, s[j]);
-
-            if (CheckCollisionRecs(irec, jrec)) {
+            if (CheckHit(p[i], r[i], hb[i], p[j], r[j], hb[j])) {
                 // Decrement health
-                h[i] -= d[j];
-                h[j] -= d[i];
+                h[i] -= hb[j].damage;
+                h[j] -= hb[i].damage;
                 // Add iframes
                 im[i].cur += im[i].init;
                 im[j].cur += im[j].init;
@@ -316,9 +431,14 @@ ecs_entity_t MakePlayer(ecs_world_t *ecs, PlayerInfo info) {
     ecs_set(ecs, player, Position, {0, 0});
     ecs_set(ecs, player, Velocity, {0, 0});
     ecs_set(ecs, player, Rotation, {0});
-    ecs_set(ecs, player, Scale, {5});
+
+    float scale = 5;
+    ecs_set(ecs, player, Scale, {scale});
     ecs_set(ecs, player, Health, {5});
-    ecs_set(ecs, player, ContactDamage, {0});
+    
+    HitBox hb = CircleHitBox(0, info.anim.sheet.height * scale);
+    ecs_set_ptr(ecs, player, HitBox, &hb);
+
     ecs_set(ecs, player, Team, {0});
     ecs_set(ecs, player, Flags, {EXPLODE_ON_DEATH});
     ecs_set(ecs, player, IFrames, {16, 0});
@@ -393,11 +513,23 @@ int main(void) {
                 .callback = DrawAnimationIFrames
             });
     
+    ecs_entity_t drawHB = ecs_system(ecs, {
+                .entity = ecs_entity(ecs, {
+                    .name = "DrawHitBoxes"
+                }),
+                .query.filter.terms = {
+                    { .id = ecs_id(Position)},
+                    { .id = ecs_id(Rotation)},
+                    { .id = ecs_id(HitBox)},
+                },
+                .callback = DrawHitBox 
+            });
+    
+    
     // ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); 
 
-    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Animation, Health, ContactDamage, Team, IFrames);
+    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Rotation, Animation, Health, HitBox, Team, IFrames);
 
-    // ECS_SYSTEM(ecs, HealthCheck, EcsOnUpdate, Health, Flags, Animation);
     ecs_entity_t healthCheck = ecs_system(ecs, {
                 .entity = ecs_entity(ecs, {
                         .name = "HealthCheck"
@@ -515,10 +647,14 @@ int main(void) {
                 Position pos = Vector2Add(init_vel, *ecs_get(ecs, player, Position));
                 ecs_set_ptr(ecs, laser, Position, &pos);
 
-                ecs_set(ecs, laser, Scale, {5});
+                float scale = 5;
+                ecs_set(ecs, laser, Scale, {scale});
 
                 ecs_set(ecs, laser, Health, {3});
-                ecs_set(ecs, laser, ContactDamage, {1});
+                
+                HitBox hb = LineHitBox(1, a_laser.sheet.height * scale);
+                ecs_set_ptr(ecs, laser, HitBox, &hb);
+                
                 ecs_set(ecs, laser, Team, {0});
                 ecs_set(ecs, laser, Flags, {0});
                 ecs_set(ecs, laser, IFrames, {0, 0});
@@ -538,10 +674,14 @@ int main(void) {
                 Position pos = GetScreenToWorld2D(GetMousePosition(), camera);
                 ecs_set_ptr(ecs, enemy, Position, &pos);
 
-                ecs_set(ecs, enemy, Scale, {3});
+                float scale = 3;
+                ecs_set(ecs, enemy, Scale, {scale});
 
                 ecs_set(ecs, enemy, Health, {5});
-                ecs_set(ecs, enemy, ContactDamage, {1});
+
+                HitBox hb = CircleHitBox(1, a_starship.sheet.height * scale);
+                ecs_set_ptr(ecs, enemy, HitBox, &hb);
+
                 ecs_set(ecs, enemy, Team, {1});
                 ecs_set(ecs, enemy, Flags, {EXPLODE_ON_DEATH});
                 ecs_set(ecs, enemy, IFrames, {16, 0});
@@ -569,6 +709,7 @@ int main(void) {
             DrawBackground(t_fg, camera, 0.9);
         }
         
+        ecs_run(ecs, drawHB, dt, 0);
         ecs_run(ecs, draw, dt, 0);
         ecs_run(ecs, drawIFrames, dt, 0);
 
@@ -606,6 +747,22 @@ int main(void) {
                     Button b_play = b_default;
                     b_play.text = "PLAY";
                     if (ShowButton(b_play)) {
+                        { // Delete every entity (that has a flags component)
+                            ecs_query_t *q = ecs_query(ecs, {
+                                        .filter.terms = {
+                                            {ecs_id(Flags)}
+                                        }
+                                    });
+
+                            ecs_iter_t it = ecs_query_iter(ecs, q);
+
+                            while (ecs_query_next(&it)) {
+                                for (int i = 0; i < it.count; ++i) {
+                                    ecs_delete(ecs, it.entities[i]);
+                                }
+                            }
+                        }
+
                         player = MakePlayer(ecs, (PlayerInfo){.anim = a_starship});
                         
                         gs = GAME;
