@@ -166,6 +166,12 @@ Rectangle RecEx(Vector2 pos, Vector2 size, Rotation r, Scale s) {
 
 float ToDeg(float rad) { return (180 / PI) * rad; }
 float ToRad(float deg) { return (PI / 180) * deg; }
+float LerpRad(float A, float B, float w) {
+    float CS = (1-w)*cos(A) + w*cos(B);
+    float SN = (1-w)*sin(A) + w*sin(B);
+    float C = atan2(SN,CS);
+    return C;
+}
 
 typedef struct Button {
     const char* text;
@@ -334,8 +340,9 @@ void SimulateAI(ecs_iter_t *it) {
     for (int i = 0; i < it->count; i++) {
         if (f[i] & ENEMY_AI_HOMING) {
             float rot = -Vector2Angle((Vector2){0, -1}, Vector2Subtract(player_pos, p[i]));
+            r[i] = LerpRad(r[i], rot, it->delta_time*3);
 
-            v[i] = Vector2Rotate((Vector2){0, -100}, rot);
+            v[i] = Vector2Rotate((Vector2){0, -100}, r[i]);
         }
     }
 }
@@ -553,7 +560,7 @@ int main(void) {
                 .callback = HealthCheck,
             });
     
-    ecs_entity_t AISim = ecs_system(ecs, {
+    ecs_entity_t SimAI = ecs_system(ecs, {
                 .entity = ecs_entity(ecs, {
                         .name = "AISimulation"
                         }),
@@ -729,7 +736,7 @@ int main(void) {
 
         ecs_progress(ecs, dt);
         ecs_run(ecs, healthCheck, dt, &a_explosion);
-        ecs_run(ecs, AISim, dt, &player_pos);
+        ecs_run(ecs, SimAI, dt, &player_pos);
         
         // ------------ DRAWING ----------------
         
