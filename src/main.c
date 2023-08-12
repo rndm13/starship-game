@@ -1,8 +1,6 @@
 #include "flecs.h"
-#include "flecs/addons/flecs_c.h"
 #include "raylib.h"
 #include "raymath.h"
-#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,7 +112,6 @@ typedef struct IFrames {
 typedef enum Flags {
     PARTICLE = 1 << 0,
     EXPLODE_ON_DEATH = 1 << 1,
-    ENEMY_AI_HOMING = 1 << 2,
 } Flags;
 
 typedef struct Animation {
@@ -133,17 +130,36 @@ Vector2 FrameSize(Animation anim) {
     return (Vector2){anim.frame_width, anim.sheet.height};
 }
 
+typedef enum AIType {
+    HOMING
+} AIType;
+
+typedef struct AIInfo {
+    AIType type;
+
+    float max_velocity;
+    float max_turning_speed;
+} AIInfo;
+
 #define COMPONENTS(ecs) \
+    ECS_COMPONENT(ecs, Animation); \
+    \
+    ECS_COMPONENT(ecs, AIInfo); \
+    \
+    ECS_COMPONENT(ecs, IFrames); \
+    \
     ECS_COMPONENT(ecs, Position); \
     ECS_COMPONENT(ecs, Velocity); \
     ECS_COMPONENT(ecs, Rotation); \
     ECS_COMPONENT(ecs, Scale); \
-    ECS_COMPONENT(ecs, Animation); \
+    \
     ECS_COMPONENT(ecs, Health); \
+    \
     ECS_COMPONENT(ecs, HitBox); \
-    ECS_COMPONENT(ecs, IFrames); \
+    \
     ECS_COMPONENT(ecs, Team); \
-    ECS_COMPONENT(ecs, Flags); 
+    \
+    ECS_COMPONENT(ecs, Flags) 
 
 typedef enum GameState {
     MAIN_MENU = 0,
@@ -247,27 +263,30 @@ void Move(ecs_iter_t *it) {
 }
 
 void Collisions(ecs_iter_t *it) {
-    Position *p = ecs_field(it, Position, 1);
-    Scale *s = ecs_field(it, Scale, 2);
-    Rotation *r = ecs_field(it, Rotation, 3);
-    Animation *a = ecs_field(it, Animation, 4);
+    const Position *p = ecs_field(it, Position, 1);
+    const Rotation *r = ecs_field(it, Rotation, 2);
+
+    const HitBox *hb = ecs_field(it, HitBox, 3);
+    const Team *t = ecs_field(it, Team, 4);
 
     Health *h = ecs_field(it, Health, 5);
-    HitBox *hb = ecs_field(it, HitBox, 6);
-    Team *t = ecs_field(it, Team, 7);
-
-    IFrames *im = ecs_field(it, IFrames, 8);
+    IFrames *im = ecs_field(it, IFrames, 6);
 
     for (int i = 0; i < it->count; i++) {
-        if (im[i].cur > 0) continue; // i is immune
+        if (im[i].cur > 0) {
+            continue;
+        } // i is immune
         
-        for (int j = i; j < it->count; j++) {
-            if (t[j] == t[i] || im[j].cur > 0) continue; // Skip if same teams or j is immune
+        for (int j = i + 1; j < it->count; j++) {
+            if (t[i] == t[j] || im[j].cur > 0) { 
+                continue;
+            } // Skip if same teams or j is immune
 
             if (CheckHit(p[i], r[i], hb[i], p[j], r[j], hb[j])) {
                 // Decrement health
                 h[i] -= hb[j].damage;
                 h[j] -= hb[i].damage;
+
                 // Add iframes
                 im[i].cur += im[i].init;
                 im[j].cur += im[j].init;
@@ -335,14 +354,18 @@ void SimulateAI(ecs_iter_t *it) {
     Rotation *r = ecs_field(it, Rotation, 3);
     Velocity *v = ecs_field(it, Velocity, 4);
 
+    AIInfo *ai = ecs_field(it, AIInfo, 5);
+
     Position player_pos = *(Position*)it->param;
 
     for (int i = 0; i < it->count; i++) {
-        if (f[i] & ENEMY_AI_HOMING) {
-            float rot = -Vector2Angle((Vector2){0, -1}, Vector2Subtract(player_pos, p[i]));
-            r[i] = LerpRad(r[i], rot, it->delta_time*3);
+        switch (ai[i].type) {
+            case HOMING: {
+                float rot = -Vector2Angle((Vector2){0, -1}, Vector2Subtract(player_pos, p[i]));
+                r[i] = LerpRad(r[i], rot, it->delta_time*ai[i].max_turning_speed);
 
-            v[i] = Vector2Rotate((Vector2){0, -100}, r[i]);
+                v[i] = Vector2Rotate((Vector2){0, -ai[i].max_velocity}, r[i]);
+            }
         }
     }
 }
@@ -430,7 +453,6 @@ void DrawHitBox(ecs_iter_t *it) {
             case LINE: {
                 Vector2 begin = GetLineBegin(p[i], r[i], hb[i]);
                 Vector2 end = GetLineEnd(p[i], r[i], hb[i]);
-                // printf("%f %f %f %f\n", begin.x, begin.y, end.x, end.y);
                 DrawLineEx(begin, end, 3, RED);
                 break;
             }
@@ -466,6 +488,7 @@ ecs_entity_t MakePlayer(ecs_world_t *ecs, PlayerInfo info) {
     ecs_set(ecs, player, IFrames, {16, 0});
 
     ecs_set_ptr(ecs, player, Animation, &info.anim);
+    ecs_add(ecs, player, AIInfo);
 
     return player;
 }
@@ -483,7 +506,6 @@ void DrawBackground(Texture t_bg, Camera2D camera, float offset_scale) {
             DrawTextureEx(t_bg, (Vector2){x, y}, 0, 1, WHITE);
         }
     }
-
 }
 
 int main(void) {
@@ -540,55 +562,104 @@ int main(void) {
 
     GameState gs = MAIN_MENU;
 
-
     COMPONENTS(ecs);
 
-    ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation);     
+    AIInfo default_homing_ai = {
+        .type = HOMING,
+        .max_velocity = 100,
+        .max_turning_speed = PI,
+    };
 
-    // ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); 
+    ecs_entity_t move = ecs_system(ecs, {
+        .entity = ecs_entity(ecs, {
+                .name = "Move"
+        }),
+        .query.filter.terms = {
+            {.id = ecs_id(Position)},
+            {.id = ecs_id(Velocity)},
+            {.id = ecs_id(Rotation)},
+        },
+        .callback = Move,
+    });
 
-    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Rotation, Animation, Health, HitBox, Team, IFrames);
+    ecs_entity_t collisions = ecs_system(ecs, {
+        .entity = ecs_entity(ecs, {
+            .name = "Collisions"
+        }),
+        .query.filter.flags = EcsTraverseAll | EcsTermMatchAny,
+        .query.filter.terms = {
+            {.id = ecs_id(Position), .inout = EcsIn},
+            {.id = ecs_id(Rotation), .inout = EcsIn},
+
+            {.id = ecs_id(HitBox), .inout = EcsIn},
+            {.id = ecs_id(Team), .inout = EcsIn},
+
+            {.id = ecs_id(Health), .inout = EcsInOut},
+            {.id = ecs_id(IFrames), .inout = EcsInOut},
+            {.id = ecs_id(AIInfo), .inout = EcsInOutNone, .oper = EcsOptional},
+        },
+        .callback = Collisions,
+    });
 
     ecs_entity_t healthCheck = ecs_system(ecs, {
-                .entity = ecs_entity(ecs, {
-                        .name = "HealthCheck"
-                        }),
-                .query.filter.terms = {
-                    {.id = ecs_id(Health)},
-                    {.id = ecs_id(Flags)},
-                },
-                .callback = HealthCheck,
-            });
+        .entity = ecs_entity(ecs, {
+            .name = "HealthCheck"
+        }),
+        .query.filter.terms = {
+            {.id = ecs_id(Health)},
+            {.id = ecs_id(Flags)},
+        },
+        .callback = HealthCheck,
+    });
     
-    ecs_entity_t SimAI = ecs_system(ecs, {
-                .entity = ecs_entity(ecs, {
-                        .name = "AISimulation"
-                        }),
-                .query.filter.terms = {
-                    {.id = ecs_id(Flags)},
-                    {.id = ecs_id(Position)},
-                    {.id = ecs_id(Rotation)},
-                    {.id = ecs_id(Velocity)},
-                },
-                .callback = SimulateAI,
-            });
+    ecs_entity_t removeParticles = ecs_system(ecs, {
+        .entity = ecs_entity(ecs, {
+            .name = "RemoveParticles",
+        }),
+        .query.filter.terms = {
+            {.id = ecs_id(Flags)},
+            {.id = ecs_id(Animation)},
+        },
+        .callback = RemoveParticles,
+    });
+    
+    ecs_entity_t decrementIFrames = ecs_system(ecs, {
+        .entity = ecs_entity(ecs, {
+            .name = "DecrementIFrames",
+        }),
+        .query.filter.terms = {
+            {.id = ecs_id(IFrames)},
+        },
+        .callback = DecrementIFrames,
+    });
 
-    ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
-    ECS_SYSTEM(ecs, DecrementIFrames, EcsOnUpdate, IFrames); 
+    ecs_entity_t simAI = ecs_system(ecs, {
+        .entity = ecs_entity(ecs, {
+            .name = "AISimulation"
+        }),
+        .query.filter.terms = {
+            {.id = ecs_id(Flags)},
+            {.id = ecs_id(Position)},
+            {.id = ecs_id(Rotation)},
+            {.id = ecs_id(Velocity)},
+            {.id = ecs_id(AIInfo)},
+        },
+        .callback = SimulateAI,
+    });
 
     ecs_entity_t draw = ecs_system(ecs, {
-                .entity = ecs_entity(ecs, {
-                    .name = "Draw"
-                }),
-                .query.filter.terms = {
-                    { .id = ecs_id(Position)},
-                    { .id = ecs_id(Rotation)},
-                    { .id = ecs_id(Scale)},
-                    { .id = ecs_id(Animation)},
-                    { .id = ecs_id(IFrames), .oper = EcsNot},
-                },
-                .callback = DrawAnimation
-            });
+        .entity = ecs_entity(ecs, {
+            .name = "Draw"
+        }),
+        .query.filter.terms = {
+            { .id = ecs_id(Position)},
+            { .id = ecs_id(Rotation)},
+            { .id = ecs_id(Scale)},
+            { .id = ecs_id(Animation)},
+            { .id = ecs_id(IFrames), .oper = EcsNot},
+        },
+        .callback = DrawAnimation
+    });
 
     ecs_entity_t drawIFrames = ecs_system(ecs, {
                 .entity = ecs_entity(ecs, {
@@ -602,7 +673,6 @@ int main(void) {
                     { .id = ecs_id(IFrames)},
                 },
                 .callback = DrawAnimationIFrames,
-                
             });
     
     ecs_entity_t drawHB = ecs_system(ecs, {
@@ -639,7 +709,6 @@ int main(void) {
         
         if (ecs_is_valid(ecs, player)) { 
             // Player controls
-            // Obviously need player
 
             bool changed = false;
 
@@ -696,16 +765,16 @@ int main(void) {
                 ecs_set(ecs, laser, IFrames, {0, 0});
 
                 ecs_set_ptr(ecs, laser, Animation, &a_laser);
+                
+                ecs_add(ecs, laser, AIInfo);
             }
 
             if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
                 ecs_entity_t enemy = ecs_new_id(ecs);
 
-                const Rotation* rot = 0;
-                ecs_set_ptr(ecs, enemy, Rotation, rot);
+                ecs_set(ecs, enemy, Rotation, {0});
 
-                Velocity vel = {0, 0};
-                ecs_set_ptr(ecs, enemy, Velocity, &vel);
+                ecs_set(ecs, enemy, Velocity, {0, 0});
 
                 Position pos = GetScreenToWorld2D(GetMousePosition(), camera);
                 ecs_set_ptr(ecs, enemy, Position, &pos);
@@ -713,14 +782,16 @@ int main(void) {
                 float scale = 3;
                 ecs_set(ecs, enemy, Scale, {scale});
 
-                ecs_set(ecs, enemy, Health, {5});
+                ecs_set(ecs, enemy, Health, {3});
 
                 HitBox hb = CircleHitBox(1, a_starship.sheet.height * scale);
                 ecs_set_ptr(ecs, enemy, HitBox, &hb);
 
                 ecs_set(ecs, enemy, Team, {1});
-                ecs_set(ecs, enemy, Flags, {EXPLODE_ON_DEATH | ENEMY_AI_HOMING});
-                ecs_set(ecs, enemy, IFrames, {16, 0});
+                ecs_set(ecs, enemy, Flags, {EXPLODE_ON_DEATH});
+                ecs_set(ecs, enemy, IFrames, {.init = 16, .cur = 0});
+                
+                ecs_set_ptr(ecs, enemy, AIInfo, &default_homing_ai);
 
                 ecs_set_ptr(ecs, enemy, Animation, &a_starship);
             }
@@ -734,9 +805,15 @@ int main(void) {
             camera.zoom = Clamp(camera.zoom, 0.1, 5);
         }
 
-        ecs_progress(ecs, dt);
+        ecs_run(ecs, move, dt, 0);
+        
+        ecs_run(ecs, simAI, dt, &player_pos);
+
+        // BROKE
+        ecs_run(ecs, removeParticles, dt, 0);
+        ecs_run(ecs, decrementIFrames, dt, 0);
+        ecs_run(ecs, collisions, dt, 0);
         ecs_run(ecs, healthCheck, dt, &a_explosion);
-        ecs_run(ecs, SimAI, dt, &player_pos);
         
         // ------------ DRAWING ----------------
         
@@ -746,7 +823,7 @@ int main(void) {
             DrawBackground(t_fg, camera, 0.9);
         }
         
-        // ecs_run(ecs, drawHB, dt, 0);
+        ecs_run(ecs, drawHB, dt, 0);
         ecs_run(ecs, draw, dt, 0);
         ecs_run(ecs, drawIFrames, dt, &sh_immunity);
 
