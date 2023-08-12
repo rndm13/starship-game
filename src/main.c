@@ -87,9 +87,6 @@ bool CheckHit(
                 }
                 case CIRCLE: {
                     return CheckCollisionPointLine(b_pos, a_begin, a_end, b.data.circle_data.radius);
-                    // Vector2 trian_point = Vector2MoveTowards(a_pos, b_pos, b.data.circle_data.radius);
-                    // printf("%f %f %f %f %f %f %f %f %f\n", a_begin.x, a_begin.y, a_end.x, a_end.y, trian_point.x, trian_point.y, b_pos.x, b_pos.y, b.data.circle_data.radius);
-                    // return CheckCollisionPointTriangle(b_pos, trian_point, a_begin, a_end);
                 }
             }
         }
@@ -98,10 +95,6 @@ bool CheckHit(
                 case LINE: {
                     Vector2 b_begin = GetLineBegin(b_pos, b_rot, b);
                     Vector2 b_end = GetLineEnd(b_pos, b_rot, b);
-                    
-                    // Vector2 trian_point = Vector2MoveTowards(b_pos, a_pos, a.data.circle_data.radius);
-                    // printf("%f %f %f %f %f %f %f %f %f\n", b_begin.x, b_begin.y, b_end.x, b_end.y, trian_point.x, trian_point.y, a_pos.x, a_pos.y, a.data.circle_data.radius);
-                    // return CheckCollisionPointTriangle(a_pos, trian_point, b_begin, b_end);
                     return CheckCollisionPointLine(a_pos, b_begin, b_end, a.data.circle_data.radius);
                 }
                 case CIRCLE:
@@ -117,9 +110,11 @@ typedef struct IFrames {
     uint8_t cur;
 } IFrames;
 
-typedef uint64_t Flags;
-#define PARTICLE 1 << 0
-#define EXPLODE_ON_DEATH 1 << 1
+typedef enum Flags {
+    PARTICLE = 1 << 0,
+    EXPLODE_ON_DEATH = 1 << 1,
+    ENEMY_AI_HOMING = 1 << 2,
+} Flags;
 
 typedef struct Animation {
     Texture sheet;
@@ -128,6 +123,14 @@ typedef struct Animation {
     uint8_t fps;
     float time;
 } Animation;
+
+uint8_t FrameCount(Animation anim) {
+    return anim.sheet.width / anim.frame_width;
+}
+
+Vector2 FrameSize(Animation anim) {
+    return (Vector2){anim.frame_width, anim.sheet.height};
+}
 
 #define COMPONENTS(ecs) \
     ECS_COMPONENT(ecs, Position); \
@@ -140,14 +143,6 @@ typedef struct Animation {
     ECS_COMPONENT(ecs, IFrames); \
     ECS_COMPONENT(ecs, Team); \
     ECS_COMPONENT(ecs, Flags); 
-
-uint8_t FrameCount(Animation anim) {
-    return anim.sheet.width / anim.frame_width;
-}
-
-Vector2 FrameSize(Animation anim) {
-    return (Vector2){anim.frame_width, anim.sheet.height};
-}
 
 typedef enum GameState {
     MAIN_MENU = 0,
@@ -244,8 +239,6 @@ void Move(ecs_iter_t *it) {
     }
 }
 
-Shader sh_immunity;
-
 void DrawAnimation(ecs_iter_t *it) {
     Position *p = ecs_field(it, Position, 1);
     Rotation *r = ecs_field(it, Rotation, 2);
@@ -272,12 +265,15 @@ void DrawAnimation(ecs_iter_t *it) {
     }
 }
 
+
 void DrawAnimationIFrames(ecs_iter_t *it) {
     Position *p = ecs_field(it, Position, 1);
     Rotation *r = ecs_field(it, Rotation, 2);
     Scale *s = ecs_field(it, Scale, 3);
     Animation *a = ecs_field(it, Animation, 4);
     IFrames *im = ecs_field(it, IFrames, 5);
+
+    Shader* sh_immunity = (Shader*)it->param;
 
     for (int i = 0; i < it->count; i++) {
         Rectangle source = {a[i].cur_frame * a[i].frame_width, 0, a[i].frame_width, a[i].sheet.height};
@@ -286,7 +282,7 @@ void DrawAnimationIFrames(ecs_iter_t *it) {
         Rectangle dest_norot = RecEx(p[i], FrameSize(a[i]), 0, s[i]);
 
         if (im[i].cur > 0) {
-            BeginShaderMode(sh_immunity);
+            BeginShaderMode(*sh_immunity);
             DrawTexturePro(a[i].sheet, source, dest, Vector2Zero(), ToDeg(r[i]), WHITE);
             EndShaderMode();
         } else {
@@ -481,6 +477,44 @@ int main(void) {
         .rotation = 0.,
     };
 
+    Shader sh_immunity = LoadShader(0, ASSET "immunity.fs");
+    
+    int sh_im_time = GetShaderLocation(sh_immunity, "time");
+    float timeSec = 0;
+    
+    Animation a_starship = {
+        .sheet = LoadTexture(ASSET "starship.png"),
+        .cur_frame = 0,
+        .frame_width = 16,
+        .time = 0,
+        .fps = 8,
+    };
+
+    Animation a_laser = {
+        .sheet = LoadTexture(ASSET "laser.png"),
+        .cur_frame = 0,
+        .frame_width = 1,
+        .time = 0,
+        .fps = 60,
+    };
+
+    Animation a_explosion = (Animation){
+        .sheet = LoadTexture(ASSET "Explosion.png"),
+        .cur_frame = 0,
+        .frame_width = 16,
+        .time = 0,
+        .fps = 8,
+    };
+
+    Texture t_bg = LoadTexture(ASSET "Background.png");
+    Texture t_mg = LoadTexture(ASSET "Midground.png");
+    Texture t_fg = LoadTexture(ASSET "Foreground.png");
+
+    Texture t_heart = LoadTexture(ASSET "Heart.png");
+
+    GameState gs = MAIN_MENU;
+
+
     COMPONENTS(ecs);
 
     ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation);     
@@ -510,7 +544,8 @@ int main(void) {
                     { .id = ecs_id(Animation)},
                     { .id = ecs_id(IFrames)},
                 },
-                .callback = DrawAnimationIFrames
+                .callback = DrawAnimationIFrames,
+                
             });
     
     ecs_entity_t drawHB = ecs_system(ecs, {
@@ -543,43 +578,6 @@ int main(void) {
 
     ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
     ECS_SYSTEM(ecs, DecrementIFrames, EcsOnUpdate, IFrames); 
-
-    Animation a_starship = {
-        .sheet = LoadTexture(ASSET "starship.png"),
-        .cur_frame = 0,
-        .frame_width = 16,
-        .time = 0,
-        .fps = 8,
-    };
-
-    Animation a_laser = {
-        .sheet = LoadTexture(ASSET "laser.png"),
-        .cur_frame = 0,
-        .frame_width = 1,
-        .time = 0,
-        .fps = 60,
-    };
-
-    Animation a_explosion = (Animation){
-        .sheet = LoadTexture(ASSET "Explosion.png"),
-        .cur_frame = 0,
-        .frame_width = 16,
-        .time = 0,
-        .fps = 8,
-    };
-
-    Texture t_bg = LoadTexture(ASSET "Background.png");
-    Texture t_mg = LoadTexture(ASSET "Midground.png");
-    Texture t_fg = LoadTexture(ASSET "Foreground.png");
-
-    Texture t_heart = LoadTexture(ASSET "Heart.png");
-
-    sh_immunity = LoadShader(0, ASSET "immunity.fs");
-
-    int sh_im_time = GetShaderLocation(sh_immunity, "time");
-    float timeSec = 0;
-
-    GameState gs = MAIN_MENU;
 
     while (!WindowShouldClose()) {
         BeginDrawing();
@@ -709,9 +707,9 @@ int main(void) {
             DrawBackground(t_fg, camera, 0.9);
         }
         
-        ecs_run(ecs, drawHB, dt, 0);
+        // ecs_run(ecs, drawHB, dt, 0);
         ecs_run(ecs, draw, dt, 0);
-        ecs_run(ecs, drawIFrames, dt, 0);
+        ecs_run(ecs, drawIFrames, dt, &sh_immunity);
 
         EndMode2D();
 
@@ -810,6 +808,7 @@ int main(void) {
         EndDrawing();
     }
 
+    UnloadShader(sh_immunity);
 
     CloseWindow(); // Close window and OpenGL context
     ecs_fini(ecs);
