@@ -97,10 +97,11 @@ bool CheckHit(
                     Vector2 b_end = GetLineEnd(b_pos, b_rot, b);
                     return CheckCollisionPointLine(a_pos, b_begin, b_end, a.data.circle_data.radius);
                 }
-                case CIRCLE:
+                case CIRCLE: {
                     return CheckCollisionCircles(
                             a_pos, a.data.circle_data.radius,
                             b_pos, b.data.circle_data.radius);
+                }
             }
     }
 }
@@ -239,6 +240,106 @@ void Move(ecs_iter_t *it) {
     }
 }
 
+void Collisions(ecs_iter_t *it) {
+    Position *p = ecs_field(it, Position, 1);
+    Scale *s = ecs_field(it, Scale, 2);
+    Rotation *r = ecs_field(it, Rotation, 3);
+    Animation *a = ecs_field(it, Animation, 4);
+
+    Health *h = ecs_field(it, Health, 5);
+    HitBox *hb = ecs_field(it, HitBox, 6);
+    Team *t = ecs_field(it, Team, 7);
+
+    IFrames *im = ecs_field(it, IFrames, 8);
+
+    for (int i = 0; i < it->count; i++) {
+        if (im[i].cur > 0) continue; // i is immune
+        
+        for (int j = i; j < it->count; j++) {
+            if (t[j] == t[i] || im[j].cur > 0) continue; // Skip if same teams or j is immune
+
+            if (CheckHit(p[i], r[i], hb[i], p[j], r[j], hb[j])) {
+                // Decrement health
+                h[i] -= hb[j].damage;
+                h[j] -= hb[i].damage;
+                // Add iframes
+                im[i].cur += im[i].init;
+                im[j].cur += im[j].init;
+            } 
+        }
+    }
+}
+
+void HealthCheck(ecs_iter_t *it) {
+    COMPONENTS(it->world);
+
+    Health *h = ecs_field(it, Health, 1);
+    Flags *f = ecs_field(it, Flags, 2);
+
+    Animation* a_explosion = (Animation*)it->param;
+
+    for (int i = 0; i < it->count; i++) {
+        if (h[i] > 0) continue;
+        if (f[i] & EXPLODE_ON_DEATH) {
+            ecs_entity_t explosion = ecs_new_id(it->world);
+            
+            const Position* pos = ecs_get(it->world, it->entities[i], Position);
+            
+            if (pos) {
+                ecs_set_ptr(it->world, explosion, Position, pos);
+
+                ecs_set(it->world, explosion, Rotation, {0});
+                ecs_set(it->world, explosion, Scale, {5});
+
+                ecs_set_ptr(it->world, explosion, Animation, a_explosion);
+
+                ecs_set(it->world, explosion, Flags, {PARTICLE});
+            }
+        } 
+        ecs_delete(it->world, it->entities[i]);
+    }
+}
+
+void RemoveParticles(ecs_iter_t *it) {
+    Flags *f = ecs_field(it, Flags, 1);
+    Animation *a = ecs_field(it, Animation, 2);
+
+    for (int i = 0; i < it->count; i++) {
+        if (!(f[i] & PARTICLE)) continue; // Not a particle
+        if (a[i].cur_frame >= FrameCount(a[i]) - 1) { // Particle on the last frame
+            ecs_delete(it->world, it->entities[i]);
+        }
+    }
+}
+
+void DecrementIFrames(ecs_iter_t *it) {
+    IFrames *im = ecs_field(it, IFrames, 1);
+
+    for (int i = 0; i < it->count; i++) {
+        if (im[i].cur > 0) {
+            im[i].cur--;
+        }
+    }
+}
+
+void SimulateAI(ecs_iter_t *it) {
+    Flags *f = ecs_field(it, Flags, 1);
+    
+    Position *p = ecs_field(it, Position, 2);
+    Rotation *r = ecs_field(it, Rotation, 3);
+    Velocity *v = ecs_field(it, Velocity, 4);
+
+    Position player_pos = *(Position*)it->param;
+
+    for (int i = 0; i < it->count; i++) {
+        if (f[i] & ENEMY_AI_HOMING) {
+            float rot = -Vector2Angle((Vector2){0, -1}, Vector2Subtract(player_pos, p[i]));
+
+            v[i] = Vector2Rotate((Vector2){0, -100}, rot);
+        }
+    }
+}
+
 void DrawAnimation(ecs_iter_t *it) {
     Position *p = ecs_field(it, Position, 1);
     Rotation *r = ecs_field(it, Rotation, 2);
@@ -329,88 +430,6 @@ void DrawHitBox(ecs_iter_t *it) {
             case CIRCLE:
                 DrawCircleV(p[i], hb[i].data.circle_data.radius, RED);
                 break;
-        }
-    }
-}
-
-void Collisions(ecs_iter_t *it) {
-    Position *p = ecs_field(it, Position, 1);
-    Scale *s = ecs_field(it, Scale, 2);
-    Rotation *r = ecs_field(it, Rotation, 3);
-    Animation *a = ecs_field(it, Animation, 4);
-
-    Health *h = ecs_field(it, Health, 5);
-    HitBox *hb = ecs_field(it, HitBox, 6);
-    Team *t = ecs_field(it, Team, 7);
-
-    IFrames *im = ecs_field(it, IFrames, 8);
-
-    for (int i = 0; i < it->count; i++) {
-        if (im[i].cur > 0) continue; // i is immune
-        
-        for (int j = i; j < it->count; j++) {
-            if (t[j] == t[i] || im[j].cur > 0) continue; // Skip if same teams or j is immune
-
-            if (CheckHit(p[i], r[i], hb[i], p[j], r[j], hb[j])) {
-                // Decrement health
-                h[i] -= hb[j].damage;
-                h[j] -= hb[i].damage;
-                // Add iframes
-                im[i].cur += im[i].init;
-                im[j].cur += im[j].init;
-            } 
-        }
-    }
-}
-
-void HealthCheck(ecs_iter_t *it) {
-    COMPONENTS(it->world);
-
-    Health *h = ecs_field(it, Health, 1);
-    Flags *f = ecs_field(it, Flags, 2);
-
-    Animation* a_explosion = (Animation*)it->param;
-
-    for (int i = 0; i < it->count; i++) {
-        if (h[i] > 0) continue;
-        if (f[i] & EXPLODE_ON_DEATH) {
-            ecs_entity_t explosion = ecs_new_id(it->world);
-            
-            const Position* pos = ecs_get(it->world, it->entities[i], Position);
-            
-            if (pos) {
-                ecs_set_ptr(it->world, explosion, Position, pos);
-
-                ecs_set(it->world, explosion, Rotation, {0});
-                ecs_set(it->world, explosion, Scale, {5});
-
-                ecs_set_ptr(it->world, explosion, Animation, a_explosion);
-
-                ecs_set(it->world, explosion, Flags, {PARTICLE});
-            }
-        } 
-        ecs_delete(it->world, it->entities[i]);
-    }
-}
-
-void RemoveParticles(ecs_iter_t *it) {
-    Flags *f = ecs_field(it, Flags, 1);
-    Animation *a = ecs_field(it, Animation, 2);
-
-    for (int i = 0; i < it->count; i++) {
-        if (!(f[i] & PARTICLE)) continue; // Not a particle
-        if (a[i].cur_frame >= FrameCount(a[i]) - 1) { // Particle on the last frame
-            ecs_delete(it->world, it->entities[i]);
-        }
-    }
-}
-
-void DecrementIFrames(ecs_iter_t *it) {
-    IFrames *im = ecs_field(it, IFrames, 1);
-
-    for (int i = 0; i < it->count; i++) {
-        if (im[i].cur > 0) {
-            im[i].cur--;
         }
     }
 }
@@ -519,6 +538,37 @@ int main(void) {
 
     ECS_SYSTEM(ecs, Move, EcsOnUpdate, Position, Velocity, Rotation);     
 
+    // ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); 
+
+    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Rotation, Animation, Health, HitBox, Team, IFrames);
+
+    ecs_entity_t healthCheck = ecs_system(ecs, {
+                .entity = ecs_entity(ecs, {
+                        .name = "HealthCheck"
+                        }),
+                .query.filter.terms = {
+                    {.id = ecs_id(Health)},
+                    {.id = ecs_id(Flags)},
+                },
+                .callback = HealthCheck,
+            });
+    
+    ecs_entity_t AISim = ecs_system(ecs, {
+                .entity = ecs_entity(ecs, {
+                        .name = "AISimulation"
+                        }),
+                .query.filter.terms = {
+                    {.id = ecs_id(Flags)},
+                    {.id = ecs_id(Position)},
+                    {.id = ecs_id(Rotation)},
+                    {.id = ecs_id(Velocity)},
+                },
+                .callback = SimulateAI,
+            });
+
+    ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
+    ECS_SYSTEM(ecs, DecrementIFrames, EcsOnUpdate, IFrames); 
+
     ecs_entity_t draw = ecs_system(ecs, {
                 .entity = ecs_entity(ecs, {
                     .name = "Draw"
@@ -560,25 +610,6 @@ int main(void) {
                 .callback = DrawHitBox 
             });
     
-    
-    // ECS_SYSTEM(ecs, DrawHealth, EcsOnUpdate, Position, Health); 
-
-    ECS_SYSTEM(ecs, Collisions, EcsOnUpdate, Position, Scale, Rotation, Animation, Health, HitBox, Team, IFrames);
-
-    ecs_entity_t healthCheck = ecs_system(ecs, {
-                .entity = ecs_entity(ecs, {
-                        .name = "HealthCheck"
-                        }),
-                .query.filter.terms = {
-                    {.id = ecs_id(Health)},
-                    {.id = ecs_id(Flags)},
-                },
-                .callback = HealthCheck,
-            });
-
-    ECS_SYSTEM(ecs, RemoveParticles, EcsOnUpdate, Flags, Animation); 
-    ECS_SYSTEM(ecs, DecrementIFrames, EcsOnUpdate, IFrames); 
-
     while (!WindowShouldClose()) {
         BeginDrawing();
         BeginMode2D(camera);
@@ -681,7 +712,7 @@ int main(void) {
                 ecs_set_ptr(ecs, enemy, HitBox, &hb);
 
                 ecs_set(ecs, enemy, Team, {1});
-                ecs_set(ecs, enemy, Flags, {EXPLODE_ON_DEATH});
+                ecs_set(ecs, enemy, Flags, {EXPLODE_ON_DEATH | ENEMY_AI_HOMING});
                 ecs_set(ecs, enemy, IFrames, {16, 0});
 
                 ecs_set_ptr(ecs, enemy, Animation, &a_starship);
@@ -698,6 +729,7 @@ int main(void) {
 
         ecs_progress(ecs, dt);
         ecs_run(ecs, healthCheck, dt, &a_explosion);
+        ecs_run(ecs, AISim, dt, &player_pos);
         
         // ------------ DRAWING ----------------
         
