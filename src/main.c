@@ -50,11 +50,11 @@ HitBox LineHitBox(int32_t damage, float length) {
 }
 
 Vector2 Vector2MoveRotation(Vector2 pos, float dist, float rot) {
-    return Vector2Add(pos, Vector2Rotate((Vector2){0, -dist}, rot));
+    return Vector2Add(pos, Vector2Rotate((Vector2){.x = 0, .y = -dist}, rot));
 }
 
 float Vector2AngleTo(Vector2 pos_a, Vector2 pos_b) {
-    return Vector2LineAngle(pos_a, pos_b);
+    return Vector2LineAngle(pos_a, pos_b) - PI/2;
 }
 
 Vector2 GetLineBegin(Position pos, Rotation rot, HitBox hb) {
@@ -298,11 +298,11 @@ void Collisions(ecs_iter_t *it) {
             if (hb[i].type != CIRCLE || hb[j].type != CIRCLE) continue; 
             
             if (f[i] & PUSH_ON_COLLISION) {
-                p[i] = Vector2MoveRotation(p[i], 90 * it->delta_time, Vector2AngleTo(p[i], p[j]) - PI/2);
+                p[i] = Vector2MoveRotation(p[i], 90 * it->delta_time, Vector2AngleTo(p[i], p[j]));
             }
 
             if (f[j] & PUSH_ON_COLLISION) {
-                p[j] = Vector2MoveRotation(p[j], 90 * it->delta_time, Vector2AngleTo(p[j], p[i]) - PI/2);
+                p[j] = Vector2MoveRotation(p[j], 90 * it->delta_time, Vector2AngleTo(p[j], p[i]));
             }
         }
     }
@@ -564,7 +564,7 @@ int main(void) {
         .cur_frame = 0,
         .frame_width = 16,
         .time = 0,
-        .fps = 16,
+        .fps = 8,
     };
 
     Texture t_bg = LoadTexture(ASSET "Background.png");
