@@ -54,8 +54,7 @@ Vector2 Vector2MoveRotation(Vector2 pos, float dist, float rot) {
 }
 
 float Vector2AngleTo(Vector2 pos_a, Vector2 pos_b) {
-    return Vector2LineAngle(pos_b, pos_a);
-    return Vector2Angle((Vector2){0, -1}, Vector2Subtract(pos_b, pos_a));
+    return Vector2LineAngle(pos_a, pos_b);
 }
 
 Vector2 GetLineBegin(Position pos, Rotation rot, HitBox hb) {
@@ -273,13 +272,14 @@ void Collisions(ecs_iter_t *it) {
     const Flags *f = ecs_field(it, Flags, 1);
 
     Position *p = ecs_field(it, Position, 2);
-    const Rotation *r = ecs_field(it, Rotation, 3);
+    Velocity *v = ecs_field(it, Velocity, 3);
+    const Rotation *r = ecs_field(it, Rotation, 4);
 
-    const HitBox *hb = ecs_field(it, HitBox, 4);
-    const Team *t = ecs_field(it, Team, 5);
+    const HitBox *hb = ecs_field(it, HitBox, 5);
+    const Team *t = ecs_field(it, Team, 6);
 
-    Health *h = ecs_field(it, Health, 6);
-    IFrames *im = ecs_field(it, IFrames, 7);
+    Health *h = ecs_field(it, Health, 7);
+    IFrames *im = ecs_field(it, IFrames, 8);
 
     for (int i = 0; i < it->count; i++) {
         for (int j = i + 1; j < it->count; j++) {
@@ -293,26 +293,16 @@ void Collisions(ecs_iter_t *it) {
                 // Add iframes
                 im[i].cur += im[i].init;
                 im[j].cur += im[j].init;
-            } else {
-                float max_push = 0;
+            } 
+           
+            if (hb[i].type != CIRCLE || hb[j].type != CIRCLE) continue; 
+            
+            if (f[i] & PUSH_ON_COLLISION) {
+                p[i] = Vector2MoveRotation(p[i], 90 * it->delta_time, Vector2AngleTo(p[i], p[j]) - PI/2);
+            }
 
-                if (hb[i].type == CIRCLE) {
-                    max_push += hb[i].data.circle_data.radius;
-                }
-
-                if (hb[j].type == CIRCLE) {
-                    max_push += hb[j].data.circle_data.radius;
-                }
-
-                if (f[i] & PUSH_ON_COLLISION) {
-                    float to_push = Clamp(max_push - Vector2Length(Vector2Subtract(p[i], p[j])), 0, 100);
-                    p[i] = Vector2MoveRotation(p[i], Lerp(0, to_push, it->delta_time*to_push), Vector2AngleTo(p[i], p[j]));
-                }
-
-                if (f[j] & PUSH_ON_COLLISION) {
-                    float to_push = max_push - Vector2Length(Vector2Subtract(p[j], p[i]));
-                    p[j] = Vector2MoveRotation(p[j], Lerp(0, to_push, it->delta_time*to_push), Vector2AngleTo(p[j], p[i]));
-                }
+            if (f[j] & PUSH_ON_COLLISION) {
+                p[j] = Vector2MoveRotation(p[j], 90 * it->delta_time, Vector2AngleTo(p[j], p[i]) - PI/2);
             }
         }
     }
@@ -574,7 +564,7 @@ int main(void) {
         .cur_frame = 0,
         .frame_width = 16,
         .time = 0,
-        .fps = 8,
+        .fps = 16,
     };
 
     Texture t_bg = LoadTexture(ASSET "Background.png");
@@ -613,6 +603,7 @@ int main(void) {
         .query.filter.terms = {
             {.id = ecs_id(Flags), .inout = EcsIn},
             {.id = ecs_id(Position), .inout = EcsInOut},
+            {.id = ecs_id(Velocity), .inout = EcsInOut},
             {.id = ecs_id(Rotation), .inout = EcsIn},
 
             {.id = ecs_id(HitBox), .inout = EcsIn},
@@ -828,17 +819,16 @@ int main(void) {
             if (IsKeyDown(KEY_RIGHT_BRACKET)) camera.zoom += 0.01;
             camera.zoom = Clamp(camera.zoom, 0.1, 5);
         }
-
-        ecs_run(ecs, move, dt, 0);
         
         ecs_run(ecs, simAI, dt, &player_pos);
-
-        // BROKE
+        ecs_run(ecs, collisions, dt, 0);
+        ecs_run(ecs, move, dt, 0);
+        
         ecs_run(ecs, removeParticles, dt, 0);
         ecs_run(ecs, decrementIFrames, dt, 0);
-        ecs_run(ecs, collisions, dt, 0);
         ecs_run(ecs, healthCheck, dt, &a_explosion);
-        
+
+
         // ------------ DRAWING ----------------
         
         { // Backgrounds
@@ -846,8 +836,8 @@ int main(void) {
             DrawBackground(t_mg, camera, 0.4);
             DrawBackground(t_fg, camera, 0.9);
         }
-        
-        ecs_run(ecs, drawHB, dt, 0);
+
+        // ecs_run(ecs, drawHB, dt, 0);
         ecs_run(ecs, draw, dt, 0);
         ecs_run(ecs, drawIFrames, dt, &sh_immunity);
 
