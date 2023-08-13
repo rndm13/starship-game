@@ -373,11 +373,15 @@ void SimulateAI(ecs_iter_t *it) {
 
     for (int i = 0; i < it->count; i++) {
         switch (ai[i].type) {
+            case NONE: {
+                break;
+            }
             case HOMING: {
                 float rot = -Vector2Angle((Vector2){0, -1}, Vector2Subtract(player_pos, p[i]));
                 r[i] = LerpRad(r[i], rot, it->delta_time*ai[i].max_turning_speed);
 
                 v[i] = Vector2Rotate((Vector2){0, -ai[i].max_velocity}, r[i]);
+                break;
             }
         }
     }
@@ -528,6 +532,7 @@ int main(void) {
     InitWindow(screenWidth, screenHeight, "gaming game gamers");
     ToggleBorderlessWindowed();
     ecs_world_t *ecs = ecs_init();
+    ecs_set_threads(ecs, 4);
 
     SetTargetFPS(60);
 
@@ -593,6 +598,7 @@ int main(void) {
             {.id = ecs_id(Rotation)},
         },
         .callback = Move,
+        .multi_threaded = true, 
     });
 
     ecs_entity_t collisions = ecs_system(ecs, {
@@ -625,6 +631,7 @@ int main(void) {
             {.id = ecs_id(Flags)},
         },
         .callback = HealthCheck,
+        .multi_threaded = true, 
     });
     
     ecs_entity_t removeParticles = ecs_system(ecs, {
@@ -636,6 +643,7 @@ int main(void) {
             {.id = ecs_id(Animation)},
         },
         .callback = RemoveParticles,
+        .multi_threaded = true, 
     });
     
     ecs_entity_t decrementIFrames = ecs_system(ecs, {
@@ -646,6 +654,7 @@ int main(void) {
             {.id = ecs_id(IFrames)},
         },
         .callback = DecrementIFrames,
+        .multi_threaded = true, 
     });
 
     ecs_entity_t simAI = ecs_system(ecs, {
@@ -660,6 +669,7 @@ int main(void) {
             {.id = ecs_id(AIInfo)},
         },
         .callback = SimulateAI,
+        .multi_threaded = true, 
     });
 
     ecs_entity_t draw = ecs_system(ecs, {
@@ -673,7 +683,8 @@ int main(void) {
             { .id = ecs_id(Animation)},
             { .id = ecs_id(IFrames), .oper = EcsNot},
         },
-        .callback = DrawAnimation
+        .callback = DrawAnimation,
+        .multi_threaded = true, 
     });
 
     ecs_entity_t drawIFrames = ecs_system(ecs, {
@@ -688,6 +699,7 @@ int main(void) {
                     { .id = ecs_id(IFrames)},
                 },
                 .callback = DrawAnimationIFrames,
+                .multi_threaded = true, 
             });
     
     ecs_entity_t drawHB = ecs_system(ecs, {
@@ -699,7 +711,8 @@ int main(void) {
                     { .id = ecs_id(Rotation)},
                     { .id = ecs_id(HitBox)},
                 },
-                .callback = DrawHitBox 
+                .callback = DrawHitBox, 
+                .multi_threaded = true,
             });
     
     while (!WindowShouldClose()) {
