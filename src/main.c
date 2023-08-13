@@ -53,6 +53,11 @@ Vector2 Vector2MoveRotation(Vector2 pos, float dist, float rot) {
     return Vector2Add(pos, Vector2Rotate((Vector2){0, -dist}, rot));
 }
 
+float Vector2AngleTo(Vector2 pos_a, Vector2 pos_b) {
+    return Vector2LineAngle(pos_b, pos_a);
+    return Vector2Angle((Vector2){0, -1}, Vector2Subtract(pos_b, pos_a));
+}
+
 Vector2 GetLineBegin(Position pos, Rotation rot, HitBox hb) {
     assert(hb.type == LINE);
 
@@ -112,6 +117,7 @@ typedef struct IFrames {
 typedef enum Flags {
     PARTICLE = 1 << 0,
     EXPLODE_ON_DEATH = 1 << 1,
+    PUSH_ON_COLLISION = 1 << 2,
 } Flags;
 
 typedef struct Animation {
@@ -131,7 +137,8 @@ Vector2 FrameSize(Animation anim) {
 }
 
 typedef enum AIType {
-    HOMING
+    NONE,
+    HOMING,
 } AIType;
 
 typedef struct AIInfo {
@@ -263,26 +270,22 @@ void Move(ecs_iter_t *it) {
 }
 
 void Collisions(ecs_iter_t *it) {
-    const Position *p = ecs_field(it, Position, 1);
-    const Rotation *r = ecs_field(it, Rotation, 2);
+    const Flags *f = ecs_field(it, Flags, 1);
 
-    const HitBox *hb = ecs_field(it, HitBox, 3);
-    const Team *t = ecs_field(it, Team, 4);
+    Position *p = ecs_field(it, Position, 2);
+    const Rotation *r = ecs_field(it, Rotation, 3);
 
-    Health *h = ecs_field(it, Health, 5);
-    IFrames *im = ecs_field(it, IFrames, 6);
+    const HitBox *hb = ecs_field(it, HitBox, 4);
+    const Team *t = ecs_field(it, Team, 5);
+
+    Health *h = ecs_field(it, Health, 6);
+    IFrames *im = ecs_field(it, IFrames, 7);
 
     for (int i = 0; i < it->count; i++) {
-        if (im[i].cur > 0) {
-            continue;
-        } // i is immune
-        
         for (int j = i + 1; j < it->count; j++) {
-            if (t[i] == t[j] || im[j].cur > 0) { 
-                continue;
-            } // Skip if same teams or j is immune
+            if (!CheckHit(p[i], r[i], hb[i], p[j], r[j], hb[j])) continue;
 
-            if (CheckHit(p[i], r[i], hb[i], p[j], r[j], hb[j])) {
+            if (im[i].cur <= 0 && im[j].cur <= 0 && t[i] != t[j]) {
                 // Decrement health
                 h[i] -= hb[j].damage;
                 h[j] -= hb[i].damage;
@@ -290,7 +293,27 @@ void Collisions(ecs_iter_t *it) {
                 // Add iframes
                 im[i].cur += im[i].init;
                 im[j].cur += im[j].init;
-            } 
+            } else {
+                float max_push = 0;
+
+                if (hb[i].type == CIRCLE) {
+                    max_push += hb[i].data.circle_data.radius;
+                }
+
+                if (hb[j].type == CIRCLE) {
+                    max_push += hb[j].data.circle_data.radius;
+                }
+
+                if (f[i] & PUSH_ON_COLLISION) {
+                    float to_push = Clamp(max_push - Vector2Length(Vector2Subtract(p[i], p[j])), 0, 100);
+                    p[i] = Vector2MoveRotation(p[i], Lerp(0, to_push, it->delta_time*to_push), Vector2AngleTo(p[i], p[j]));
+                }
+
+                if (f[j] & PUSH_ON_COLLISION) {
+                    float to_push = max_push - Vector2Length(Vector2Subtract(p[j], p[i]));
+                    p[j] = Vector2MoveRotation(p[j], Lerp(0, to_push, it->delta_time*to_push), Vector2AngleTo(p[j], p[i]));
+                }
+            }
         }
     }
 }
@@ -488,7 +511,7 @@ ecs_entity_t MakePlayer(ecs_world_t *ecs, PlayerInfo info) {
     ecs_set(ecs, player, IFrames, {16, 0});
 
     ecs_set_ptr(ecs, player, Animation, &info.anim);
-    ecs_add(ecs, player, AIInfo);
+    ecs_set(ecs, player, AIInfo, {NONE});
 
     return player;
 }
@@ -586,9 +609,10 @@ int main(void) {
         .entity = ecs_entity(ecs, {
             .name = "Collisions"
         }),
-        .query.filter.flags = EcsTraverseAll | EcsTermMatchAny,
+        // .query.filter.flags = EcsTraverseAll | EcsTermMatchAny,
         .query.filter.terms = {
-            {.id = ecs_id(Position), .inout = EcsIn},
+            {.id = ecs_id(Flags), .inout = EcsIn},
+            {.id = ecs_id(Position), .inout = EcsInOut},
             {.id = ecs_id(Rotation), .inout = EcsIn},
 
             {.id = ecs_id(HitBox), .inout = EcsIn},
@@ -766,7 +790,7 @@ int main(void) {
 
                 ecs_set_ptr(ecs, laser, Animation, &a_laser);
                 
-                ecs_add(ecs, laser, AIInfo);
+                ecs_set(ecs, laser, AIInfo, {NONE});
             }
 
             if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
@@ -788,7 +812,7 @@ int main(void) {
                 ecs_set_ptr(ecs, enemy, HitBox, &hb);
 
                 ecs_set(ecs, enemy, Team, {1});
-                ecs_set(ecs, enemy, Flags, {EXPLODE_ON_DEATH});
+                ecs_set(ecs, enemy, Flags, {EXPLODE_ON_DEATH | PUSH_ON_COLLISION});
                 ecs_set(ecs, enemy, IFrames, {.init = 16, .cur = 0});
                 
                 ecs_set_ptr(ecs, enemy, AIInfo, &default_homing_ai);
