@@ -16,7 +16,7 @@ FetchContent_MakeAvailable(raylib)
 FetchContent_Declare(flecs GIT_REPOSITORY https://github.com/SanderMertens/flecs.git GIT_TAG master)
 FetchContent_MakeAvailable(flecs)
 
-project(gaming_game_gamers)
+project(starship-game)
 
 find_package(Threads REQUIRED)
 

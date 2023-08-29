@@ -468,14 +468,14 @@ void DrawHitBox(ecs_iter_t *it) {
     for (int i = 0; i < it->count; i++) {
         switch(hb[i].type) {
             case LINE: {
-                Vector2 begin = GetLineBegin(p[i], r[i], hb[i]);
-                Vector2 end = GetLineEnd(p[i], r[i], hb[i]);
-                DrawLineEx(begin, end, 3, RED);
-                break;
-            }
+                           Vector2 begin = GetLineBegin(p[i], r[i], hb[i]);
+                           Vector2 end = GetLineEnd(p[i], r[i], hb[i]);
+                           DrawLineEx(begin, end, 3, RED);
+                           break;
+                       }
             case CIRCLE:
-                DrawCircleV(p[i], hb[i].data.circle_data.radius, RED);
-                break;
+                       DrawCircleV(p[i], hb[i].data.circle_data.radius, RED);
+                       break;
         }
     }
 }
@@ -496,7 +496,7 @@ ecs_entity_t MakePlayer(ecs_world_t *ecs, PlayerInfo info) {
     float scale = 5;
     ecs_set(ecs, player, Scale, {scale});
     ecs_set(ecs, player, Health, {5});
-    
+
     HitBox hb = CircleHitBox(0, info.anim.sheet.height * scale);
     ecs_set_ptr(ecs, player, HitBox, &hb);
 
@@ -529,7 +529,7 @@ int main(void) {
     const int screenWidth = 1360;
     const int screenHeight = 700;
 
-    InitWindow(screenWidth, screenHeight, "gaming game gamers");
+    InitWindow(screenWidth, screenHeight, "starship game");
     ToggleBorderlessWindowed();
     ecs_world_t *ecs = ecs_init();
     ecs_set_threads(ecs, 4);
@@ -544,10 +544,10 @@ int main(void) {
     };
 
     Shader sh_immunity = LoadShader(0, ASSET "immunity.fs");
-    
+
     int sh_im_time = GetShaderLocation(sh_immunity, "time");
     float timeSec = 0;
-    
+
     Animation a_starship = {
         .sheet = LoadTexture(ASSET "starship.png"),
         .cur_frame = 0,
@@ -555,6 +555,16 @@ int main(void) {
         .time = 0,
         .fps = 8,
     };
+
+    Animation a_enemy = {
+        .sheet = LoadTexture(ASSET "Enemy.png"),
+        .frame_width = 32,
+        .fps = 8,
+        
+        .time = 0,
+        .cur_frame = 0,
+    };
+
 
     Animation a_laser = {
         .sheet = LoadTexture(ASSET "laser.png"),
@@ -620,6 +630,7 @@ int main(void) {
             {.id = ecs_id(AIInfo), .inout = EcsInOutNone, .oper = EcsOptional},
         },
         .callback = Collisions,
+        .multi_threaded = true, 
     });
 
     ecs_entity_t healthCheck = ecs_system(ecs, {
@@ -807,12 +818,12 @@ int main(void) {
                 Position pos = GetScreenToWorld2D(GetMousePosition(), camera);
                 ecs_set_ptr(ecs, enemy, Position, &pos);
 
-                float scale = 3;
+                float scale = 2;
                 ecs_set(ecs, enemy, Scale, {scale});
 
                 ecs_set(ecs, enemy, Health, {3});
 
-                HitBox hb = CircleHitBox(1, a_starship.sheet.height * scale);
+                HitBox hb = CircleHitBox(1, a_enemy.sheet.height * scale);
                 ecs_set_ptr(ecs, enemy, HitBox, &hb);
 
                 ecs_set(ecs, enemy, Team, {1});
@@ -821,7 +832,7 @@ int main(void) {
                 
                 ecs_set_ptr(ecs, enemy, AIInfo, &default_homing_ai);
 
-                ecs_set_ptr(ecs, enemy, Animation, &a_starship);
+                ecs_set_ptr(ecs, enemy, Animation, &a_enemy);
             }
         } 
 
